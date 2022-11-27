@@ -1,0 +1,314 @@
+---
+title: "Introduction to NGS Data Analysis"
+author: "Archibald Worwui, Mouhamadou F. DIOP, Lucas A. Etego & Alfred A. NGWA"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+    html_document: 
+        toc: yes
+        toc_float: yes
+        code_folding: hide
+        theme: cerulean
+        highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Overview
+A lot of genomics analysis is done using command-line tools for different reasons:
+1. You will often be working with a large number of files, and working through the command-line rather than through a graphical user interface (GUI) allows you to automate repetitive tasks.
+2. you will often need more compute power than is available on your personal computer, and connecting to and interacting with remote computers requires a command-line interface, and
+3. you will often need to customize your analyses, and command-line tools often enable more customization than the corresponding GUI tools (if in fact a GUI tool even exists).
+
+You've previously learned how to use the bash shell to interact with your computer through a command line interface. In this session, you will be applying this new knowledge to carry out a common genomics workflow, identifying variants among sequencing samples taken from multiple individuals within a population. We will be starting with a set of sequenced reads (.fastq files), performing some quality control steps, aligning those reads to a reference genome, and ending by identifying and visualizing variations among these samples.
+
+As you progress through this lesson, keep in mind that, even if you aren’t going to be doing this same workflow in your research, you will be learning some very important lessons about using command-line bioinformatic tools. What you learn here will enable you to use a variety of bioinformatic tools with confidence and greatly enhance your research efficiency and productivity.
+
+## Overview of Data
+
+In this practical we will use a real-world dataset consisting of a large molecular inversion probe (MIP) dataset taken from DRC and surrounding countries, previously analysed by Verity et al. 2020. We will be using a simplified version of this dataset focusing on just three mutations in the dhps gene.
+
+## Learning outcomes
+- Understand the basics of the different NGS technologies
+- Perform quality control for better downstream analysis
+- Align reads to a reference genome
+- Visualize the output
+
+# Major applications
+- Whole genome (assembly)
+- Variant detection
+- Targeted sequencing (Amplicone sequencing)
+- Transcriptome characterization
+    e.g. RNA-seq
+- Epigenome characterization:
+    e.g. ATAC-seq
+- DNA-protein interactions:
+    e.g. ChIP-seq
+- Metagenome characterization
+- Any others?
+
+# Introduction to NGS data analysis
+- Raw sequence files (FASTQ format)
+- Preprocessing of raw reads: quality control (FastQC), adapter clipping, quality trimming
+- Introduction to read mapping (Alignment methods, Mapping heuristics)
+- Read mapping (BWA, BWA-MEM, Bowtie2, STAR, segemehl)
+- Mapping output (SAM/BAM format)
+- Usage of important NGS toolkits (samtools)
+- Mapping statistics
+- Visualization of mapped reads (IGV, UCSC)
+- DNA variant calling
+- Variant Call File Format (VCF)
+- Filtering DNA variants
+
+## Dependencies for Practical
+1. FASTQC
+2. TRIMMOMATIC
+
+### Assessing Read Quality
+When working with high-throughput sequencing data, the raw reads you get off of the sequencer will need to pass through a number of different tools in order to generate your final desired output. The execution of this set of tools in a specified order is commonly referred to as a workflow or a pipeline.
+
+An example of the workflow we will be using for our variant calling analysis is provided below with a brief description of each step.
+1. Quality control - Assessing quality using FastQC
+2. Quality control - Trimming and/or filtering reads (if necessary)
+3. Align reads to reference genome
+4. Perform post-alignment clean-up
+5. Variant calling
+
+These workflows in bioinformatics adopt a plug-and-play approach in that the output of one tool can be easily used as input to another tool without any extensive configuration. Having standards for data formats is what makes this feasible. Standards ensure that data is stored in a way that is generally accepted and agreed upon within the community. The tools that are used to analyze data at different stages of the workflow are therefore built under the assumption that the data will be provided in a specific format.
+
+## Downloading data
+Often times, the first step in a bioinformatic workflow is getting the data you want to work with onto a computer where you can work with it. If you have outsourced sequencing of your data, the sequencing center will usually provide you with a link that you can use to download your data. Today we will be working with publicly available sequencing data.
+
+We are studying a population of Escherichia coli (designated Ara-3), which were propagated for more than 50,000 generations in a glucose-limited minimal medium. We will be working with three samples from this experiment, one from 5,000 generations, one from 15,000 generations, and one from 50,000 generations. The population changed substantially during the course of the experiment, and we will be exploring how with our variant calling workflow.
+
+The data are paired-end, so we will download two files for each sample. We will use the European Nucleotide Archive to get our data. The ENA “provides a comprehensive record of the world’s nucleotide sequencing information, covering raw sequencing data, sequence assembly information and functional annotation.” The ENA also provides sequencing data in the fastq format, an important format for sequencing reads that we will be learning about today.
+
+To download the data, run the commands below.
+
+Here we are using the -p option for mkdir. This option allows mkdir to create the new directory, even if one of the parent directories does not already exist. It also supresses errors if the directory already exists, without overwriting that directory.
+
+```{bash}
+mkdir -p workshop/data/raw/
+cd workshop/data/raw
+
+curl -O ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR258/004/SRR2589044/SRR2589044_1.fastq.gz
+curl -O ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR258/004/SRR2589044/SRR2589044_2.fastq.gz
+curl -O ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR258/003/SRR2584863/SRR2584863_1.fastq.gz
+curl -O ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR258/003/SRR2584863/SRR2584863_2.fastq.gz
+curl -O ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR258/006/SRR2584866/SRR2584866_1.fastq.gz
+curl -O ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR258/006/SRR2584866/SRR2584866_2.fastq.gz
+```
+
+The data comes in a compressed format, which is why there is a .gz at the end of the file names. This makes it faster to transfer, and allows it to take up less space on our computer. Let’s unzip one of the files so that we can look at the fastq format.
+
+```{bash}
+gunzip SRR2584863_1.fastq.gz
+```
+
+### Read Quality Filtering and Trimming
+In any analysis, this should be the first step. Not only will this give you an idea of the quality of your data but it will also clean up and reduce the size of your data, making downstream analysis much easier! The main steps in this process are:
+
+1. Removing low quality bases
+2. Removing low complexity reads
+3. Remove artifacts (barcodes, adapters, chimeras)
+
+We will now assess the quality of the sequence reads contained in our fastq files.
+```{bash}
+head -n 4 SRR2584863_1.fastq
+```
+
+### Exercise
+What is the last read in the SRR2584863_1.fastq file? How confident are you in this read?
+```{bash}
+tail -n 4 SRR2584863_1.fastq
+```
+
+## Assessing quality using FastQC
+In real life, you will not be assessing the quality of your reads by visually inspecting your FASTQ files. Rather, you will be using a software program to assess read quality and filter out poor quality reads. We will first use a program called FastQC to visualize the quality of our reads. Later in our workflow, we will use another program to filter out poor quality reads.
+
+FastQC allows you to inspect various quality metrics that can inform your quality trimming decisions. We recommend running FastQC before and after you perform your quality trimming. This will allow you to assess and inspect the effects of quality trimming, as well as how much of your raw data (reads) where lost during the quality trimming stage. Rather than looking at quality scores for each individual read, FastQC looks at quality collectively across all reads within a sample.
+
+> The program '**fastqc**' can be installed it by typing:
+```{bash}
+sudo apt-get install fastqc
+```
+
+
+```{bash}
+fastqc -h
+    FastQC - A high throughput sequence QC analysis tool
+```
+
+**SYNOPSIS**:
+
+fastqc seqfile1 seqfile2 .. seqfileN
+
+fastqc [-o output dir] [--(no)extract] [-f fastq|bam|sam]
+       [-c contaminant file] seqfile1 .. seqfileN
+
+## Running FastQC
+We will now assess the quality of the reads that we downloaded. First, make sure you are in the *raw* directory
+```{bash}
+cd workshop/data/raw/
+```
+
+How big are the files? (Hint: Look at the options for the ls command to see how to show file sizes.)
+```{bash}
+ls -l -h
+```
+
+FastQC can accept multiple file names as input, and on both zipped and unzipped files, so we can use the *.fastq* wildcard to run FastQC on all of the FASTQ files in this directory.
+
+```{bash}
+fastqc *.fastq
+```
+
+We want to keep our data files and our results files separate, so we will move these output files into a new directory within our results/ directory.
+```{bash}
+mkdir -p workshop/results/fastqc_output
+mv *.zip workshop/results/fastqc_output/
+mv *.html workshop/results/fastqc_output/
+```
+
+**Exercise**
+Discuss your results with a neighbor. Which sample(s) looks the best in terms of per base sequence quality? Which sample(s) look the worst?
+
+### Decoding the other FastQC outputs
+We have now looked at quite a few “Per base sequence quality” FastQC graphs, but there are nine other graphs that we have not talked about! Below we have provided a brief overview of interpretations for each of these plots. For more information, please see the FastQC documentation here
+
+- [Per tile sequence quality](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/12%20Per%20Tile%20Sequence%20Quality.html): the machines that perform sequencing are divided into tiles. This plot displays patterns in base quality along these tiles. Consistently low scores are often found around the edges, but hot spots can also occur in the middle if an air bubble was introduced at some point during the run.
+- [Per sequence quality scores](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/3%20Per%20Sequence%20Quality%20Scores.html): a density plot of quality for all reads at all positions. This plot shows what quality scores are most common.
+- [Per base sequence content](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/4%20Per%20Base%20Sequence%20Content.html): plots the proportion of each base position over all of the reads. Typically, we expect to see each base roughly 25% of the time at each position, but this often fails at the beginning or end of the read due to quality or adapter content.
+- [Per sequence GC content](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/5%20Per%20Sequence%20GC%20Content.html): a density plot of average GC content in each of the reads.
+- [Per base N content](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/6%20Per%20Base%20N%20Content.html): the percent of times that ‘N’ occurs at a position in all reads. If there is an increase at a particular position, this might indicate that something went wrong during sequencing.
+- [Sequence Length Distribution](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/7%20Sequence%20Length%20Distribution.html): the distribution of sequence lengths of all reads in the file. If the data is raw, there is often on sharp peak, however if the reads have been trimmed, there may be a distribution of shorter lengths.
+- [Sequence Duplication Levels](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/8%20Duplicate%20Sequences.html): A distribution of duplicated sequences. In sequencing, we expect most reads to only occur once. If some sequences are occurring more than once, it might indicate enrichment bias (e.g. from PCR). If the samples are high coverage (or RNA-seq or amplicon), this might not be true.
+- [Overrepresented sequences](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/9%20Overrepresented%20Sequences.html): A list of sequences that occur more frequently than would be expected by chance.
+- [Adapter Content](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/10%20Adapter%20Content.html): a graph indicating where adapater sequences occur in the reads.
+- [K-mer Content](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/11%20Kmer%20Content.html): a graph showing any sequences which may show a positional bias within the reads.
+
+## Working with multiple samples
+In cases where you have QC’ed multiple samples, it can become very difficult to visualize all the QC reports separately. Imagine you have sequenced 6 samples (paired end reads), perform FastQC, followed by Trimmomatic, and then FastQC again.
+
+It then makes more sense to aggregate the reports and visualize them together, how?
+
+Using [MultiQC](https://multiqc.info/)
+All you have to do it point multiqc to the top level directory, and it will automatically scan the directory structure (or tree) and consolidate all the reports into one interactive HTML report.
+
+Suppose you have a directory in your scratch folder /scratch/$USER/my_project/, which is where you have performed your analysis. Then all you have to do,
+
+```{bash}
+cd /scratch/$USER/my_project
+multiqc -n My_FastQC_reports -l My_FastQC_reports.html /scratch/$USER/my_project
+```
+
+MultiQC can detect and parse a lot of different kinds of reports (e.g. PICARD output, SnpEff, Samtools, FastQC among others), for more information, please refer to the software homepage above.
+
+# Trimming and Filtering
+
+## Cleaning reads
+In the previous episode, we took a high-level look at the quality of each of our samples using FastQC. We visualized per-base quality graphs showing the distribution of read quality at each base across all reads in a sample and extracted information about which samples fail which quality checks. Some of our samples failed quite a few quality metrics used by FastQC. This does not mean, though, that our samples should be thrown out! It is very common to have some quality metrics fail, and this may or may not be a problem for your downstream application. For our variant calling workflow, we will be removing some of the low quality sequences to reduce our false positive rate due to sequencing error.
+
+We will use a program called Trimmomatic to filter poor quality reads and trim poor quality bases from our samples.
+
+### Trimmomatic options
+Trimmomatic has a variety of options to trim your reads. If we run the following command, we can see some of our options.
+
+```{bash}
+trimmomatic
+```
+
+We will use only a few of these options and trimming steps in our analysis. It is important to understand the steps you are using to clean your data. For more information about the Trimmomatic arguments and options, see the [Trimmomatic manual](http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/TrimmomaticManual_V0.32.pdf).
+
+However, a complete command for Trimmomatic will look something like the command below. This command is an example and will not work, as we do not have the files it refers to:
+```{bash}
+trimmomatic PE -threads 4 SRR_1056_1.fastq SRR_1056_2.fastq  \
+              SRR_1056_1.trimmed.fastq SRR_1056_1un.trimmed.fastq \
+              SRR_1056_2.trimmed.fastq SRR_1056_2un.trimmed.fastq \
+              ILLUMINACLIP:SRR_adapters.fa SLIDINGWINDOW:4:20
+```
+
+## Running Trimmomatic on your data
+Now we will run Trimmomatic on our data. To begin, navigate to your raw data directory:
+```{bash}
+cd workshop/data/raw
+```
+
+We are going to run Trimmomatic on one of our paired-end samples. While using FastQC we saw that Nextera adapters were present in our samples. The adapter sequences came with the installation of trimmomatic, so we will first copy these sequences into our current directory.
+
+```{bash}
+cp ~/.miniconda3/pkgs/trimmomatic-0.38-0/share/trimmomatic-0.38-0/adapters/NexteraPE-PE.fa .
+```
+
+We will also use a sliding window of size 4 that will remove bases if their phred score is below 20 (like in our example above). We will also discard any reads that do not have at least 25 bases remaining after this trimming step. Three additional pieces of code are also added to the end of the ILLUMINACLIP step. These three additional numbers (2:40:15) tell Trimmimatic how to handle sequence matches to the Nextera adapters. A detailed explanation of how they work is advanced for this particular lesson. For now we will use these numbers as a default and recognize they are needed to for Trimmomatic to run properly. This command will take a few minutes to run.
+
+```{bash}
+trimmomatic PE SRR2589044_1.fastq.gz SRR2589044_2.fastq.gz \
+               SRR2589044_1.trim.fastq.gz SRR2589044_1un.trim.fastq.gz \
+               SRR2589044_2.trim.fastq.gz SRR2589044_2un.trim.fastq.gz \
+               SLIDINGWINDOW:4:20 MINLEN:25 ILLUMINACLIP:NexteraPE-PE.fa:2:40:15
+```
+
+### Exercise
+Use the output from your Trimmomatic command to answer the following questions.
+
+1) What percent of reads did we discard from our sample? 
+2) What percent of reads did we keep both pairs?
+
+You may have noticed that Trimmomatic automatically detected the quality encoding of our sample. It is always a good idea to double-check this or to enter the quality encoding manually.
+
+We can confirm that we have our output files:
+
+```{bash}
+ls SRR2589044*
+```
+
+The output files are also FASTQ files. It should be smaller than our input file, because we have removed reads. We can confirm this:
+
+```{bash}
+ls SRR2589044* -l -h
+```
+
+We have just successfully run Trimmomatic on one of our FASTQ files! However, there is some bad news. Trimmomatic can only operate on one sample at a time and we have more than one sample. The good news is that we can use a for loop to iterate through our sample files quickly!
+
+We unzipped one of our files before to work with it, let’s compress it again before we run our for loop.
+```{bash}
+gzip SRR2584863_1.fastq 
+```
+
+```{bash}
+for infile in *_1.fastq.gz
+> do
+>   base=$(basename ${infile} _1.fastq.gz)
+>   trimmomatic PE ${infile} ${base}_2.fastq.gz \
+>                ${base}_1.trim.fastq.gz ${base}_1un.trim.fastq.gz \
+>                ${base}_2.trim.fastq.gz ${base}_2un.trim.fastq.gz \
+>                SLIDINGWINDOW:4:20 MINLEN:25 ILLUMINACLIP:NexteraPE-PE.fa:2:40:15 
+> done
+```
+
+### Exercise
+We trimmed our fastq files with Nextera adapters, but there are other adapters that are commonly used. What other adapter files came with Trimmomatic?
+
+```{bash}
+ls ~/miniconda3/pkgs/trimmomatic-0.38-0/share/trimmomatic-0.38-0/adapters/
+```
+
+We have now completed the trimming and filtering steps of our quality control process! Before we move on, let’s move our trimmed FASTQ files to a new subdirectory within our data/ directory.
+
+```{bash}
+cd ~/dc_workshop/data/raw
+mkdir ../trimmed_fastq
+mv *.trim* ../trimmed_fastq
+cd ../trimmed_fastq
+ls
+```
+
+### Bonus exercise (advanced)
+Now that our samples have gone through quality control, they should perform better on the quality tests run by FastQC. Go ahead and re-run FastQC on your trimmed FASTQ files and visualize the HTML files to see whether your per base sequence quality is higher after trimming.
+
+```{bash}
+fastqc workshop/data/trimmed_fastq/*.fastq*
+```
+

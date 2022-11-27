@@ -1,0 +1,438 @@
+---
+title: "IBAP 2022: RNA-seq data analysis"
+author: "Archibald Worwui, Mouhamadou F. DIOP, Lucas A. Etego & Alfred A. NGWA"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+    html_document:
+        code_folding: show
+        toc: yes
+        toc_float: yes
+        theme: cerulean
+        highlight: tango
+---
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+**Reading**:\
+
+- [RNA-seqlopedia](https://rnaseq.uoregon.edu/#sequencing)
+
+- [Advancing RNA-Seq analysis](https://www.nature.com/articles/nbt0510-421)
+
+- [Computation for ChIP-seq and RNA-seq studies](https://pubmed.ncbi.nlm.nih.gov/19844228/)
+
+
+# Introduction 
+
+RNA-seq is essentially the sequence of RNA molecules from either a specific cell, tissue, or species. There are two main motivations for sequencing RNA:
+
+1. Identifying differential expression of genes by comparing different samples.
+2. Attempt to capture all RNA molecules in a given species.
+
+> In the case where a species does not have a sequenced genome, the researcher has to do `(2)` before they can do `(1)`.
+
+## The workflow
+
+- Quality Contol : Fastqc
+- Quality Trimming: Trimmomatic
+- Alignment: Tophat2 & Bowtie2
+- Index and Dedup: Picard
+
+# Overview of the data
+
+A limited-size FASTQ data sample is available in the rnaseq folder. trainee should follow along using this data. After the workshop, you are encouraged to use your own data or download data from a public repositories and to repeat the learned concepts on a full-size data set. \
+You can download the data from [ArrayExpress](https://www.ebi.ac.uk/arrayexpress), click Browse and filter search results by the experiment type "RNA assay" and "Sequencing assay". Download a data set with a raw data present in FASTQ format.
+
+# Objectives
+By the end of the session, we hope that participants will: 
+1. know how to align and quantify gene expression with RNA-seq data, 
+2. know what packages to use and what steps to take to analyze RNA-seq data for differentially expressed genes.
+
+**Note**: There is a *simplified RNA-Seq preprocessing tool for gene expression analysis* developed to help scientists preprocess RNA-Seq data for downstream gene expression analysis. This tool called [BRB Digital Gene Expression (BRB-DGE)](https://arraytools.github.io/bdge/) is directed toward life scientists with little to no experience with statistical computing or bioinformatics. It is designed to run in a `Linux` (we currently only support Ubuntu Linux) environment which includes local physical/virtual machines or remote servers. The tool is developed to run `RNA-Seq` preprocessing based on well-known RNA-Seq tools (Tophat, Samtools and HTSeq). Therefore rather than inventing a new preprocessing tool, we design `[BRB-DGE](https://arraytools.github.io/bdge/)` as easy-to-use software and hope it can make `RNA-Seq` preprocessing more accessible to general scientists.
+
+# Pre-Alignment QC
+
+First we will start with running the quality control for our sequences. We will use the software `Fastqc`, and to run this the command is very simple as as you learned in the previous session. Since there are only 4 files so we could simply run it 4 times, so each of you will choose a sample and run `Fastqc`.
+
+
+Imagine we have 100 or more samples, running `Fastqc` for each sample will take a while, especially if we use a laptop. However, we can run the analysis from a remote server (HPC) and to do this we need to spend time, create an array job which will look for all the fastq file in the directory and run `Fastqc`. This will save us from significant amount of work in the future.
+
+Now, open a new text file named `run_fastqc.sh` and copy this script below:
+
+```{bash}
+#!/bin/bash
+#SBATCH --array=0-3
+#SBATCH --output=quality_%A_%a.out
+#SBATCH --error=quality_%A_%a.err
+#SBATCH -J fastqc
+#SBATCH -p serial
+
+# the below code finds all files that end with fastq.gz and saves it as an array called FILES
+FILES=($(ls *fastq.gz))
+
+# this is going to print out the name of the file -> it will be saved in our output
+echo ${FILES[$SLURM_ARRAY_TASK_ID]}
+
+# this is actually doing the work.
+
+module load fastqc
+fastqc ${FILES[$SLURM_ARRAY_TASK_ID]}
+
+# Print this message so you know the script completed successfully.
+echo "done"
+```
+
+Fastqc provides an .html file that can be opened in a browser and a .zip file that contains the html file and other information in a text file. You may want to transfer these files to your computer to view them. Our array SLURM job also produced one .err and one .out file for each job that was executed.
+
+## Trimmomatic
+Trimmomatic has options to:
+
+1. Remove leading and trailing nucleotide based on quality or simply a given number of bases
+2. Remove sequence when the average quality of a window falls below a certain threshold
+3. Remove sequences matching Illumina adapters.
+
+We can use the same approach as above to run Trimmomatic.
+
+```{bash}
+#!/bin/bash
+#SBATCH --array=0-3
+#SBATCH --output=Trimmomatic_%A_%a.out
+#SBATCH --error=Trimmomatic_%A_%a.err
+#SBATCH -J Trimmomatic
+#SBACTH -p serial
+
+# the below code finds all files that end with fastq.gz and saves it as an array called FILES
+FILES=($(ls *fastq.gz))
+
+# this is going to assign the variables to file names
+INPUT=${FILES[$SLURM_ARRAY_TASK_ID]}
+OUTPUT=${INPUT}.trimmed.fastq
+
+# this is actually doing the work.
+module load trimmomatic
+
+# make sure we use phred64
+trimmomatic SE -phred64 \
+$INPUT \
+$OUTPUT \
+HEADCROP:10 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36
+
+# I like to print this to the output so i know the script completed successfully.
+echo "done"
+```
+
+# Aligning RNA-seq data
+
+RNA sequences do not contain introns, gene models in Eukaryotes contain introns which are often spliced out during transcription. RNA Sequences that span two exons will have a hard time mapping to the genome, which still contains the code for introns.
+
+One solution is to map the RNA sequence data to the predicted RNA molecules. However there are several disadvantages of mapping the RNA sequences directly to the predicted transcripts:
+
+1. We have to rely on the accuracy of the gene structure prediction method. Many genes structures are incomplete and also inaccurate.
+2. The genes we identify in the RNA samples may not be annotated in the genome yet. In this case, we would completely miss the gene from our analysis.
+3. Mapping the sequences to the genome can help us identify the genes that are missing from our annotation or annotated incorrectly.
+
+## Tophat
+There are several software out now that have been developed specifically to help align RNA reads to the genome. One of the earliest and most popular is `Tophat`. *Tophat* is built on top of `Bowtie` (another popular short read aligner based on BWT). 
+
+There have been some newer RNA-seq aligners that are worth considering:
+
+- [HISAT](http://www.ccb.jhu.edu/software/hisat/index.shtml)
+- [STAR](https://code.google.com/archive/p/rna-star/)
+- [Kallisto](http://pachterlab.github.io/kallisto/manual.html)
+- [Salmon](http://salmon.readthedocs.io/en/latest/salmon.html)
+
+In this session, we will use `Tophat` as aligner. In order to align your RNA sequences to the genome with `Tophat`, you have to first create the database files using `bowtie`. `bowtie2-build` needs the fasta file as the first argument followed by the *prefix* to be used for the database index files.
+
+```{bash}
+#!/bin/bash
+#SBATCH -J BowtieBuild
+#SBATCH -p serial
+#SBATCH --output=BowtieBuild.out
+#SBATCH --error=BowtieBuild.err
+
+module load samtools
+# indexing the fasta files comes in handy for later use but is not necessary for bowtie-build.
+samtools faidx Plasmodium.fa
+
+module load bowtie2
+
+# bowtie2-build Plasmodium.fa Plasmodium
+```
+
+Then we can take each sample and align them against the Plasmodium genome.
+
+```{bash}
+#!/bin/bash
+#SBATCH --array=0-3
+#SBATCH --output=Tophat_%A_%a.out
+#SBATCH --error=Tophat_%A_%a.err
+#SBATCH -J Tophat
+#SBATCH -n 4
+#SBATCH --time=01:00:00
+#SBATCH -p serial
+
+module purge
+module load tophat2
+
+FILES=($(ls *trimmed.fastq))
+
+# this is going to assign the variables to file names
+INPUT=${FILES[$SLURM_ARRAY_TASK_ID]}
+OUTPUT=${INPUT}.tophat
+
+tophat2 -i 10 -p 4 --no-coverage-search \
+--solexa1.3-quals \
+-o $OUTPUT \
+-G Arabidopsis.gtf \
+Athaliana \
+$INPUT
+
+# --solexa1.3-quals specifying that quality score is phred64
+# -i = the minimum inton size
+# -o = the directory where the output should be saved.
+# Here I have used a variable that can be assigned in the bash script
+# -G = a genome annotation to use as a reference.
+# The last two parameters are the prefix to the Bowtie database
+# and then finally the fastq file containing the RNA sequence data.
+# This is also a variable that you can assign.
+```
+
+You want to run this command separately for all the samples. The option to align paired reads is slightly different.
+
+Now we can sort and de-duplicate the reads. Sorting and indexing are common transformations that allow applications to process the data efficiently. `Picard` has an excellent collection of tools that can be used. There is also samtools, which has some equivalent functions, however I find that I run into fewer errors when I use [Picard](https://broadinstitute.github.io/picard/)
+
+```{bash}
+#!/bin/bash
+#SBATCH --array=0-3
+#SBATCH --output=Dedup_%A_%a.out
+#SBATCH --error=Dedup_%A_%a.err
+#SBATCH -J Dedup
+#SBATCH --time=01:00:00
+#SBATCH -p serial
+
+# get all tophat directories
+DIRS=($(ls -d *tophat))
+
+# names are getting too long so let's cut out and grab the important part of the name
+INPUTNAME=($(echo ${DIRS[$SLURM_ARRAY_TASK_ID]} | cut -d '.' -f 1))
+
+module load picard
+
+# sort the bam file. All output files are called accepted_hits.bam in the tophat
+# output directory.
+
+picard SortSam \
+INPUT=${DIRS[$SLURM_ARRAY_TASK_ID]}/accepted_hits.bam \
+OUTPUT=${INPUTNAME}_sorted.bam \
+SORT_ORDER=coordinate
+
+# remove duplications
+picard MarkDuplicates \
+INPUT=${INPUTNAME}_sorted.bam \
+OUTPUT=${INPUTNAME}_dedup.bam \
+METRICS_FILE=${INPUTNAME}.dedup.metrics \
+REMOVE_DUPLICATES=TRUE \
+ASSUME_SORTED=TRUE \
+MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=1000
+
+# create index files for the bam files. This is helpful if you want to visualize your results.
+picard BuildBamIndex \
+INPUT=${INPUTNAME}_dedup.bam \
+OUTPUT=${INPUTNAME}_dedup.bam.bai
+
+echo "dedup done"
+```
+
+Now that we have the alignment files processed, we can use one many different tools to determine differentially expressed genes.
+
+# Gene Expression
+
+Our goal for this experiment is to determine which Arabidopsis thaliana genes respond to nitrate. The dataset is a simple experiment where RNA is extracted from roots of independent plants and then sequenced. Two plants were treated with the control (KCl) and two samples were treated with Nitrate (KNO3).
+
+The sequences were processed to remove all low quality sequences, trim all low quality nucleotides, and finally aligned against the Arabidopsis genome using TopHat. Our analysis starts from here.
+
+We have been provided the following files:
+
+4 Bam files – An alignment file, one for each sample
+Arabidopsis.gtf file – which contains information about the genes in Arabidopsis and where they are located in the genome.
+Experiment design – a comma separated file containing meta data.
+Gene description – Description about the function of the genes in Arabidopsis.
+
+```{r}
+source("http://bioconductor.org/biocLite.R")
+biocLite("Rsamtools")
+biocLite("GenomicFeatures")
+biocLite("GenomicAlignments")
+biocLite("DESeq")
+```
+
+## The Alignment Files
+The alignment files are in bam format. This files will not be loaded into R, but rather simply pointed to by a reference/variable. The alignment files provided are about 15x smaller compared to an average RNA-seq sample run today. Also there will be triplicates of 3 or more different conditions resulting in much more than 4 sample. So you can imagine the amount of space and memory R would need if all that data was stored in the workspace.
+
+To do point to the bam files we will use Rsamtools
+
+```{r}
+library(Rsamtools)
+(bamfiles = BamFileList(dir(pattern=".bam")))
+
+```
+
+## The Annotation File
+GTF file is very similar to a GFF file. Their purpose is to store the location of genome features, such as genes, exons, and CDS. It is a tab delimited flat file which looks something like this.
+
+We will load the GTF file using **GenomicFeatures** and group the exons based on the gene annotation.
+
+```{r}
+library(GenomicFeatures)
+
+txdb <- makeTxDbFromGFF("Arabidopsis.gtf", format="gtf")
+
+(ebg <- exonsBy(txdb, by="gene"))
+```
+
+## The Experimental Design
+We will need meta information about our samples to define which sample is the KCL and which is the KNO3. A simple comma separated file can be created using a text editor where the first column has the sample file names and the second column has the categories for the samples. 
+
+
+Now let's load the file into our workspace. The commands read.table, read.csv, and read.delim are all related with the exception of different default parameters. They all read a text file and load it into your workspace as a data.frame. Additonally it loads all columns that are character vectors and makes them factors. The first option for all the different versions is the neame of the file. After that, unless you have memorized the options for the commands, explicitly state which parameters you are providing.
+
+```{r}
+expdesign <- read.csv("expdesign.txt", row.names=1, sep=",")
+```
+
+## Counting the Reads
+Now we will use the GenomicAlignments package to determine where the reads are mapping. Remember we decided to map the sequences to the genome so we can make new discoveries such as novel genes, alternative splicing, and also anti-sense transcripts. In the event that the reference genome is not sequenced, one would have to assemble the RNA-seq reads first to identify all the genes that were detected in the RNA-seq samples. However assembling the transcriptome is quite a complicated process and requires a lot of time and manual curation to produce quality transcripts. We are fortunate that we are using Arabidopsis data whose genome was sequenced in 2000.
+
+The function summarizeOverlaps takes the bam files and the gene annotation to count the number of reads that are matching a gene. The union mode means if a read matches an area where two genes overlap, then it is not counted. We can also provide other parameters such as whether sequence was single-end or pair-end.
+
+```{r}
+library("GenomicAlignments")
+```
+
+```{r}
+se <- summarizeOverlaps(features=ebg, 
+                        reads=bamfiles, 
+                        mode="Union", 
+                        singleEnd=TRUE, 
+                        ignore.strand=TRUE ) 
+
+counts = assay(se) 
+```
+
+> Filtering the Counts Now, if you remember from the lecture, genes that are expressed at a very low level are extremely unreliable. We will remove all genes if neither of the groups ( KCL or KNO3 ) have a median count of 10 and call the new dataframe counts_filtered.
+
+```{r}
+medianCountByGroup = t(apply(counts, 1, tapply, expdesign, median)) maxMedian=apply(medianCountByGroup, 1, max) 
+counts_filtered = counts[maxMedian>=10,]
+```
+
+## Differentially Expressed Genes
+Now that we have the counts table filtered, we can start to determine if any of the genes are significantly differentially expressed using DESeq. DESeq performs a pairwise differential expression test by creating a negative binomial model.
+
+Now we can create an object that DESeq needs using the function newCountDataSet. In order to create this dataset, we need the filtered data frame of read counts and the factor that will help group the data based on the condition.
+
+```{r}
+library(DESeq)
+
+cds = newCountDataSet(counts_filtered, expdesign$condition)
+```
+
+Before the actual test, DESeq has to consider the difference in total reads from the different samples. This is done by using estimateSizeFactors function.
+
+```{r}
+cds = estimateSizeFactors(cds)
+```
+
+Next DESeq will estimate the dispersion ( or variation ) of the data. If there are no replicates, DESeq can manage to create a theoretical dispersion but this is not ideal.
+
+```{r}
+cds = estimateDispersions( cds )
+plotDispEsts( cds )
+```
+
+The plot shows us that as the gene's read count increases, dispersion decreases, which is what we expect. Now we will tell DESeq what we would like to compare. Then we will use the adjusted p-value ( p-value corrected for multiple hypothesis testing ) for our cutoff.
+
+```{r}
+res = nbinomTest( cds, "untreated", "treated" )
+head(res)
+```
+
+```{r}
+sum(res$padj < 0.05, na.rm=T)
+```
+
+## MA Plot
+Here's an MA plot that shows as the average count of a gene increases, a smaller fold change is needed for something to be significant. For this reason, it is often helpful to require that the log2foldchange also be greater than or less than negative of some cutoff.
+
+```{r}
+plotMA(res, ylim=c(-5,5))
+```
+
+## Significant genes
+Let's use the same values for our cutoff to determine which genes we want to consider as significantly differentially expressed. The resSigind variable will contain genes that are induced and resSigrep will contain genes that are repressed when the plants are treated with Nitrate. To create one dataframe of differentially expressed genes, let's combine the two dataframe. We can use the rbind command because the columns are the same in both sets. To show the name of the genes, simply look in the id column of the dataframe.
+
+```{r}
+resSigind = res[ which(res$padj < 0.1 & res$log2FoldChange > 1), ]
+resSigrep = res[ which(res$padj < 0.1 & res$log2FoldChange < -1), ]
+resSig = rbind(resSigind, resSigrep)
+
+resSigind$id
+```
+
+```{r}
+resSigrep$id
+```
+
+##Gene Annotations
+Great ! We have genes that are differentially expressed, what do we know about these genes ? The gene identifier we obtained from the GTF file is referred to as TAIR identifiers (a consortium that used to release Arabidopsis genome annotations) I managed to download the gene description for all the genes. Let's load them into the workspace and find out what are the names of the genes.Since the set of repressed genes is smaller, let's see what we can find out about them.
+
+Before we do this, note that the identified in the gene_description file is slightly different ( the file contains the transcript identifier that ends with "." and a number), Let's replace every occurrence of . and a number with nothing. Then we will be able to use match to find where our gene is in the description file so we can only print out that row.
+
+```{r}
+gene_description <- read.delim("gene_description_20131231.txt",
+header=FALSE, quote="")
+genenames = gsub("[.][1234567890]", "",
+gene_description[,1])
+
+gene_description[,1]=genenames
+
+gene_match_rows=match(resSigrep$id, gene_description[,1])
+gene_description[gene_match_rows,c(1,3)]
+```
+
+## DESeq 2
+
+[DESeq2 manual](https://bioconductor.org/packages/release/bioc/html/DESeq2.html)
+
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("Rsamtools")
+BiocManager::install("GenomicFeatures")
+BiocManager::install("GenomicAlignments")
+BiocManager::install("DESeq2")
+BiocManager::install("GOstats")
+BiocManager::install("GO.db")
+BiocManager::install("Category")
+BiocManager::install("org.At.tair.db")
+```
+
+```{r}
+library(DESeq2)
+cds = DESeqDataSetFromMatrix(countData=counts_filtered,
+colData=expdesign,
+design= ~ condition)
+
+# if you would like to try to run without the filtering
+# simply commend the above lines and uncomment below.
+
+#cds = DESeqDataSetFromMatrix(countData=counts,
+# colData=expdesign,
+# design= ~ condition)
+```
+

@@ -1,0 +1,359 @@
+---
+title: "Introduction to NGS Data Analysis"
+author: "Archibald Worwui, Mouhamadou F. DIOP, Lucas A. Etego & Alfred A. NGWA"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+    html_document: 
+        toc: yes
+        toc_float: yes
+        code_folding: hide
+        theme: cerulean
+        highlight: tango
+---
+    
+    ```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Introduction to variant calling
+Identifying genomic variants, such SNPs and indels, can play an important role in scientific discovery. Identifying variants is conceptually simple:
+
+## Learning outcomes
+- Align reads to a reference genome
+- Visualize the output
+- Call variants
+- Annotate markers
+- Filter variants
+
+## Introduction to NGS data analysis
+- Introduction to read mapping (Alignment methods, Mapping heuristics)
+- Read mapping (BWA, BWA-MEM, Bowtie2, STAR, segemehl)
+- Mapping output (SAM/BAM format)
+- Usage of important NGS toolkits (samtools)
+- Mapping statistics
+- Visualization of mapped reads (IGV, UCSC)
+
+## Dependencies for Practical
+1. Bwa 0.7.8
+2. Picard-tools 1.129
+3. Gatk 3.3-0
+4. Samtools 1.3
+5. Snpeff 4.1
+6. Tabix 0.2.6 (part of HTSlib)
+7. IGV
+
+# Alignment
+
+Once data are in a FASTQ format the second step, after checking quality and trimming bad reads, of any NGS analysis is to align the short reads against the reference genome. 
+In this session, we will learn how to map short DNA sequence reads, assess the quality of the alignment and prepare to visualize the mapping of the reads.
+
+## Overview:
+1. Align reads to reference
+2. Sort sam file (output from alignment) and convert to bam
+3. Alignment Metrics
+4. Mark duplicates
+5. Prepare reference dictionary, fasta index, and bam index
+
+## Performing a read alignment using Illumina data
+
+We will use the **BWA MEM** algorithm to align input reads to your reference genome. We use **BWA MEM** because it is recommended in the Broads best practices and because it has been found to produce better results for variant calling. Note that **BWA MEM** is recommended for longer reads, ie. 75bp and up.
+
+Alternative aligners such as **Bowtie2** may be used. Note also there are other aligners available depending on the analysis you want to perform. For example, to align RNA-Seq data, the most common aligners used are **STAR** or **Tophat2**
+
+Most aligners require an indexed reference sequence as input. If required, index files can be built from a reference sequence (in FASTA format) using the following command:
+
+`bwa index reference.fasta`
+
+```{bash}
+bwa index ref/Pf3D7_genome.fasta
+```
+
+Look at the output
+```{bash}
+ls -l
+```
+
+> Note: If the reference is greater than 2GB, you need to specify a different algorithm when building the BWA index, as follows:
+
+`bwa index -a bwtsw <reference.fasta>`
+
+Once we have the reference index, we can proceed to the alignment step. We run BWA as follows:
+
+`bwa mem -M -R <ref> <reads_1.fastq> <reads_2.fastq> > <output.sam>`
+
+```{bash}
+bwa mem -M -R '@RG\tID:sample_1\tLB:sample_1\tPL:ILLUMINA\tPM:HISEQ\tSM:sample_1' ref/Pf3D7_genome.fasta reads_1.fastq reads_2.fastq > aligned_reads.sam
+```
+
+## Sort sam and convert to bam
+The algorithms used in downsteam steps require the data to be sorted by coordinate and in bam format in order to be processed. We use Picard Tools and issue a single command to both sort the sam file produced in step 1 and output the resulting sorted data in bam format:
+
+```{bash}
+java -jar picard.jar SortSam INPUT=aligned_reads.sam OUTPUT=sorted_reads.bam SORT_ORDER=coordinate
+```
+
+Let’s take a look at the files before and after this step to see what happened. We will use samtools to view the sam/bam files.
+
+Let’s take a look at the first few lines of the original file. We’ll use the samtools view command to view the sam file, and pipe the output to head -5 to show us only the ‘head’ of the file (in this case, the first 5 lines).
+
+```{bash}
+samtools view aligned_reads.sam | head -5
+```
+
+Let’s compare this initial alignment file to the new sorted file:
+
+```{bash}
+samtools view sorted_reads.bam | head -5
+```
+
+## Alignment Metrics
+Let’s compute some statistics to see how well our reads aligned to the reference genome. We’ll use samtools flagstat for this.
+
+```{bash}
+samtools flagstat aligned_reads.sam
+```
+
+Save these metrics to a text file by piping the output to a new file
+
+```{bash}
+samtools flagstat aligned_reads.sam > alignment_metrics.txt
+```
+
+## Mark Duplicates
+During the sequencing process, the same DNA fragments may be sequenced several times. These duplicate reads are not informative and cannot be considered as evidence for or against a putative variant. For example, duplicates can arise during sample preparation e.g. library construction using PCR. Without this step, you risk having over-representation in your sequence of areas preferentially amplified during PCR. Duplicate reads can also result from a single amplification cluster, incorrectly detected as multiple clusters by the optical sensor of the sequencing instrument. These duplication artifacts are referred to as optical duplicates.
+
+We use *Picard* Tools to locate and tag duplicate reads in a BAM or SAM file, where duplicate reads are defined as originating from a single fragment of DNA.
+
+Note that this step does not remove the duplicate reads, but rather flags them as such in the read’s SAM record. We’ll take a look at how this is done shortly. Downstream GATK tools will ignore reads flagged as duplicates by default.
+
+Note: Duplicate marking should not be applied to amplicon sequencing or other data types where reads start and stop at the same positions by design.
+
+```{bash}
+java -jar picard.jar MarkDuplicates INPUT=sorted_reads.bam OUTPUT=dedup_reads.bam METRICS_FILE=metrics.txt
+```
+
+Let’s take a look at the bam file before and after the Mark Duplicates step to see how reads are flagged as duplicates.
+
+Refresher: The second column in a SAM file is known as the bitwise flag. This flag allows for the storage of lots of information in a highly efficient format. Let’s look at the first read in sorted_reads.bam:
+
+```{bash}
+samtools view sorted_reads.bam | head -1
+```
+
+## Prepare indexed bam file
+We use samtools to build the bam index:
+
+```{bash}
+samtools index dedup_reads.bam
+```
+
+## Prepare reference dictionary, fasta index, and bam index
+In order to run GATK, we need to build a reference dictionary, fasta index, and a bam index.
+
+We use Picard Tools to build the reference dictionary for GATK:
+
+```{bash}
+java -jar $PICARD_JAR CreateSequenceDictionary R=ref/Pf3D7_genome.fasta O=ref/Pf3D7_genome.fasta.dict
+```
+
+We use samtools to build the fasta index:
+
+```{bash}
+samtools faidx ref/Pf3D7_genome.fasta
+```
+
+We use samtools to build the bam index:
+
+```{bash}
+samtools index dedup_reads.bam
+```
+
+# Variant Calling
+Variant calling entails identifying single nucleotide polymorphisms (SNPs) and small insertions and deletion (indels) from next generation sequencing data. This tutorial will cover SNP & Indel detection in Plasmodium falciparum whole genome from Ivory Coast. Other more complex rearrangements (such as Copy Number Variations) require additional analysis not covered in this tutorial.
+There are many ways to perform variant calling for short read (illumina) data:
+- bcftools
+- GATK
+- FreeBayes
+- Stacks
+
+We will be using GATK in this session
+
+Note: This tutorial uses GATK4 for variant calling described [here](https://gencore.bio.nyu.edu/variant-calling-pipeline-gatk4/).
+
+## Base Quality Score Recalibration
+Variant calling algorithms rely heavily on the quality score assigned to the individual base calls in each sequence read. This is because the quality score tells us how much we can trust that particular observation to inform us about the biological truth of the site where that base aligns. If we have a basecall that has a low quality score, that means we’re not sure we actually read that A correctly, and it could actually be something else. So we won’t trust it as much as other base calls that have higher qualities. In other words we use that score to weigh the evidence that we have for or against a variant allele existing at a particular site. [https://software.broadinstitute.org/gatk/best-practices/bp_3step.php?case=GermShortWGS]
+
+**Refresher**: What are quality scores?
+
+- Per-base estimates of error emitted by the sequencer
+- Expresses the level of confidence for each base called
+- Use standard Pred scores: Q20 is a general cutoff for high quality and represents 99% certainty that a base was called correctly, 99% certainty means 1 out of 100 expected to be wrong. 
+Let’s consider a small dataset of 1M reads with a read length of 50, this means 50M bases. With 99% confidence, this means 500,000 possible erroneous bases.
+
+Note that this step requires a ‘*truth*’ or ‘*known*’ set of variants. For this example we will be using the gold set from the 1000 genomes project (provided in the sample dataset: 3d7_hb3.combined.final.vcf.gz.tbi). An index for the VCF is required as well and is also provided. If you need to build an index for your VCF file, you can build one easily using the TABIX program, like so:
+
+```{bash}
+tabix -p vcf 3d7_hb3.combined.final.vcf.gz
+```
+
+## Step 1: Analyze Covaration
+
+```{bash}
+java -jar $GATK_JAR -T BaseRecalibrator -R ref/Pf3D7_genome.fasta -I dedup_reads.bam -knownSites 3d7_hb3.combined.final.vcf.gz -o recal_data.table
+```
+
+## Step 2: Apply BQSR
+
+This step applies the recalibration computed in the Step 1 to the bam file.
+
+```{bash}
+java -jar $GATK_JAR -T PrintReads -R ref/Pf3D7_genome.fasta -I dedup_reads.bam -BQSR recal_data.table -o recal_reads.bam
+```
+
+## Variant Discovery
+Once you have a pre-processed, analysis-ready bam file, you can begin the variant discovery process.
+
+### Call Variants
+We use the GATK HaplotypeCaller to perform variant calling. The HaplotypeCaller is capable of calling SNPs and indels simultaneously via local de-novo assembly of haplotypes in an active region. In other words, whenever the program encounters a region showing signs of variation, it discards the existing mapping information and completely reassembles the reads in that region. This step is designed to maximize sensitivity in order to minimize false negatives, i.e. failing to identify real variants.
+
+```{bash}
+java -jar $GATK_JAR -T HaplotypeCaller -R ref/Pf3D7_genome.fasta -I recal_reads.bam -o raw_variants.vcf
+```
+
+### Extract SNPs and Indels
+This step separates SNPs and Indels so they can be processed and analyzed independently.
+
+Prince
+```{bash}
+java -jar $GATK_JAR -T SelectVariants -R ref/Pf3D7_genome.fasta -V raw_variants.vcf -selectType SNP -o raw_snps.vcf
+java -jar $GATK_JAR -T SelectVariants -R ref/Pf3D7_genome.fasta -V raw_variants.vcf -selectType INDEL -o raw_indels.vcf
+```
+
+Dalma
+```{bash}
+gatk -T SelectVariants -R ref/Pf3D7_genome.fasta -V raw_variants.vcf -selectType SNP -o raw_snps.vcf
+gatk -T SelectVariants -R ref/Pf3D7_genome.fasta -V raw_variants.vcf -selectType INDEL -o raw_indels.vcf
+```
+
+### Filter Variants
+The first step is designed to maximize sensitivity and is thus very lenient in calling variants. This is good because it minimizes the chance of missing real variants, but it means that we need to filter the raw callset produced in order to reduce the amount of false positives, which can be quite large. This is an important step in order to obtain the the highest-quality call set possible.
+
+We apply the recommended hard filters for SNPs and Indels.
+
+Prince
+**SNPs**
+
+```{bash}
+java -jar $GATK_JAR -T VariantFiltration \
+-R ref/Pf3D7_genome.fasta \
+-V raw_snps.vcf \
+-filterName "QD_filter" \
+-filter "QD<2.0" \
+-filterName "FS_filter" \
+-filter "FS>60.0" \
+-filterName "MQ_filter" \
+-filter "MQ<40.0" \
+-filterName "SOR_filter" \
+-filter "SOR>10.0" \
+-o filtered_snps.vcf
+```
+
+You should get two new files: filtered_snps.vcf and filtered_snps.vcf.idx
+
+Note: SNPs which are ‘filtered out’ at this step will remain in the filtered_snps.vcf file, however, they will be marked as ‘*_filter’ based on which filter the SNP failed, while SNPs which passed the filter will be marked as ‘PASS’
+
+Indels
+
+```{bash}
+java -jar $GATK_JAR -T VariantFiltration \
+-R ref/Pf3D7_genome.fasta \
+-V raw_indels.vcf \
+-filterName "QD_filter" \
+-filter "QD<2.0" \
+-filterName "FS_filter" \
+-filter "FS>200.0" \
+-filterName "SOR_filter" \
+-filter "SOR>10.0" \
+-o filtered_indels.vcf
+```
+
+You should get two new files: filtered_indels.vcf and filtered_indels.vcf.idx
+
+Note: Indels which are ‘filtered out’ at this step will remain in the filtered_snps.vcf file, however, they will be marked as ‘*_filter’ based on which filter the indel failed, while Indels which passed the filter will be marked as ‘PASS’
+
+Dalma
+SNPs
+
+```{bash}
+gatk -T VariantFiltration \
+-R ref/Pf3D7_genome.fasta \
+-V raw_snps.vcf \
+-filterName "QD_filter" \
+-filter "QD'<'2.0" \
+-filterName "FS_filter" \
+-filter "FS'>'60.0" \
+-filterName "MQ_filter" \
+-filter "MQ'<'40.0" \
+-filterName "SOR_filter" \
+-filter "SOR'>'10.0" \
+-o filtered_snps.vcf
+```
+
+You should get two new files: filtered_snps.vcf and filtered_snps.vcf.idx
+
+Note: SNPs which are ‘filtered out’ at this step will remain in the filtered_snps.vcf file, however, they will be marked as ‘*_filter’ based on which filter the SNP failed, while SNPs which passed the filter will be marked as ‘PASS’
+
+**Indels**
+
+```{bash}
+gatk -T VariantFiltration \
+-R ref/Pf3D7_genome.fasta \
+-V raw_indels.vcf \
+-filterName "QD_filter" \
+-filter "QD'<'2.0" \
+-filterName "FS_filter" \
+-filter "FS'>'200.0" \
+-filterName "SOR_filter" \
+-filter "SOR'>'10.0" \
+-o filtered_indels.vcf
+```
+
+You should get two new files: filtered_indels.vcf and filtered_indels.vcf.idx
+
+Note: Indels which are ‘filtered out’ at this step will remain in the filtered_snps.vcf file, however, they will be marked as ‘*_filter’ based on which filter the indel failed, while Indels which passed the filter will be marked as ‘PASS’
+
+## Annotation
+We will use the program SnpEff. It annotates and predicts the effects of variants on genes (such as amino acid changes).
+
+SnpEff has pre-built databases for thousands of genomes. We will be using the pre-built database ....
+
+We’re now ready to run SnpEff:
+
+```{bash}
+java -jar software/snpEff/4.1/snpEff.jar -v 3D7 filtered_snps_renamed.vcf > filtered_snps.ann.vcf
+
+```
+
+Locating and downloading the SnpEff database for your organism:
+
+To locate and download the SnpEff database for your organism, execute the following command:
+
+```{bash}
+java -jar /share/apps/snpeff/4.1g/snpEff.jar databases | grep -i
+```
+
+
+For example, if you are working with Plasmodium falciparum 3D7:
+
+```{bash}
+java -jar /share/apps/snpeff/4.1g/snpEff.jar databases | grep -i 3D7
+```
+
+Select the reference/version you are working with (for example: Plasmodium falciparum 3D7), then:
+
+```{bash}
+java -jar snpEff.jar download 3D7
+```
+
+
+

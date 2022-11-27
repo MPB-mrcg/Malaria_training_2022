@@ -1,0 +1,517 @@
+---
+title: "Exploring NGS File Formats"
+author: "Archibald Worwui, Mouhamadou F. DIOP, Lucas A. Etego & Alfred A. NGWA"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+    html_document: 
+        toc: yes
+        toc_float: yes
+        code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Overview
+This practical will introduce participants to the UNIX command lines, which is the main way to interact with most of the Bioinformatics tools. We will cover most of the commands you've learnt during the command line and NGS file format sessions.
+
+## Learning Goals
+- Visualize file/directory structures
+- Understand basic shell vocabulary
+- Gain exposure to the syntax of shell & shell scripting
+- Look at the contents of a directory
+- Find features of commands with *man*
+- Commands: *pwd*, *ls*, *cd*, *man*
+
+## Basic commands
+1. What shell you are using?
+
+```{bash}
+echo $SHELL
+```
+
+2. Display your working/current directory\
+```{bash}
+pwd
+```
+
+3. List files in the current directory\
+```{bash}
+ls
+```
+
+## Your first command
+
+4. Print the word **hello** to the screen
+```{bash}
+echo hello
+```
+
+Print the sentence “hello my friends to the screen (with open quotation and without end quotation).\
+Remember you can use the up arrow to go back to previously typed commands
+
+```{bash}
+echo "hello my friends
+```
+
+Now the terminal hangs. We typed an incorrect command and the terminal does not know what to do.
+
+5. What to type when the terminal hangs?
+
+```{bash}
+Ctrl-C
+```
+
+If Ctrl-C fails, try hitting ESC. In most of the cases, this will do the trick.
+
+6. Open the manual of the echo command?
+```{bash}
+man echo
+```
+
+The synopsis of this command is:
+
+```{bash}
+echo [-n] [string ...]
+```
+
+Things in between square brackets are optional, so it means that you can use echo without options and arguments.
+
+> When the manual page is longer than the terminal, you can scroll down the page one line at a time by pressing the down arrow key, or one page at a time by pressing the spacebar.
+
+
+    To exit the man page, press q (for quit).
+
+The manual explains that echo prints its argument by default to the screen and then puts the prompt on a new line. The way it does this is by appending a character called a newline (a special character that literally puts the text on a new line). Because echo is often used in programs to print out a sequence of strings not separated by newlines, there is an option to prevent the newline from being inserted.
+
+7. Find the command to print hello without a newline, and verify that it works as expected.\
+Again remember to use the up arrow to go to previously typed commands.
+```{bash}
+echo -n hello
+```
+
+8. Open the manual of the sleep command, find how to make the terminal “*sleep*” for 5 seconds, and execute the command.
+```{bash}
+man sleep
+```
+
+According to the manual sleep has a required argument called number representing the number of seconds to sleep.
+
+```{bash}
+sleep 5
+```
+
+9. Make the terminal sleep for 5000 seconds and rescue the terminal.
+```{bash}
+sleep 5000
+```
+
+That’s more than an hour so use Ctrl-C to break off the command.
+
+# Navigation
+
+10. What do you notice if you type *cd* without any arguments
+```{bash}
+cd
+
+You see that using cd without arguments leads you to your home directory.\
+```
+
+11. Which directories are located in your home directory ?
+
+```{bash}
+# To view a list of the files and directories that are located in the current working directory, type
+ls
+
+# ls stands for list and is used for listing all files and directories in the current directory.
+```
+
+12. List all files and directories in your home directory that start with the letter D
+```{bash}
+ls D*
+
+# D* means everything which name starts with a D
+```
+
+**A common pattern when using the command line is changing directories using cd and then immediately typing ls to view the contents of the directory.**
+
+13. Now, create a directory in your scratch directory called **linuxTutorial**\
+```{bash}
+mkdir linuxTutorial
+```
+
+14. Move to the **linuxTutorial** directory.\
+```{bash}
+# cd stands for change directory and is used for navigating the Linux file system
+cd linuxTutorial
+```
+
+15. Which directory are you in ?
+```{bash}
+# pwd stands for print working directory.
+pwd
+```
+
+16. List the detailed content of your home directory ?
+```{bash}
+ls -l
+
+# -l stands for long output.
+```
+
+Among others, the detailed list shows a date and time indicating the last time a file was modified. The number before the date is the size of the file in bytes.
+
+17. List the content of the /usr/local/bin directory ?
+```{bash}
+ls /usr/local/bin
+
+# /usr/local/bin corresponds to a directory in the file system (/),
+# with bin a subdirectory of local and local a subdirectory of usr.
+```
+
+18. To remove a directory, use the rm (remove) command. You could use rmdir but this only works on empty folders. To remove a folder with the rm command you need to use the -r option. This stands for recursively which means it will remove the folder and its complete content.
+
+```{bash}
+# Use the variable as an argument of the rm command:
+
+rm -r linuxTutorial
+```
+
+**Check if it's removed using the ls command.**
+
+19. Now, recreate the *linuxTutorial* folder and navigate to it.
+```{bash}
+mkdir linuxTutorial
+cd linuxTutorial
+```
+
+20. Write the command to move to a folder that's located in another location of the file system.
+```{bash}
+# Go to the /usr/bin folder
+cd /usr/bin
+```
+
+21. Go back to your training folder
+```{bash}
+cd linuxTutorial
+```
+
+# Manipulating files
+Even without a text editor, there are ways to create a file with text using the redirect operator >
+
+22. Create a file called test1.txt containing the text "Why do bioinformaticians work on the command line?" 
+```{bash}
+echo "Why do bioinformaticians work on the command line?" > test1.txt
+```
+
+The redirect operator > takes the text output of echo and redirects its contents to a file called test1.txt
+
+23. Check if it worked by viewing the content of the file on the screen
+```{bash}
+cat test1.txt
+```
+
+> The name *cat* is short for “**concatenate**”. The command can be used to combine the contents of multiple files, but we use it here to dump the content of a single file to the screen. 
+*Cat* is as a “quick-and-dirty” way to view the content of a file.
+
+24. Add the following line to the file and check if it worked
+"Because they don't want to scare you with huge amounts of data!"
+```{bash}
+# To add lines of text to a file, use the append operator >>:
+echo "Because they don't want to scare you with huge amounts of data!" >> test1.txt
+cat test1.txt
+```
+
+The append operator >> appends the text output of echo to the file test1.txt
+
+25. Create an empty file called test2.txt and check if it exists
+```{bash}
+# To create an empty file, use the touch command:
+touch test2.txt
+ls
+```
+
+26. List the names of all text files in your current directory
+```{bash}
+ls *.txt
+
+# Here *.txt automatically expands to all filenames that match the pattern “any string followed by .txt”.
+```
+
+27. Rename the file test2.txt to test_part2.txt using mv and check if it worked
+```{bash}
+# To rename a file use the mv command, short for move:
+mv test2.txt test_part2.txt
+ls *.txt
+```
+
+28. Copy the file test_part2.txt to test2.txt and check if it worked
+```{bash}
+# To copy a file use the cp command, short for copy:
+cp test_part2.txt test2.txt
+ls *.txt
+```
+
+You don't have to type out test_part2.txt, instead you can type something like test_-Tab thereby making use of tab completion. Tab completion involves automatically completing a word if there’s only one valid match on the system. For example, if the only file starting with the letters “test_” is test_part2.txt, test_-Tab refers to test_part2.txt
+Especially with longer names, tab completion can save a huge amount of typing.
+
+29. Remove the file test_part2.txt and check if it worked
+```{bash}
+# To remove a file use the rm command, short for remove:
+rm test_part2.txt
+ls *.txt
+```
+
+30. Now, create experiment directory and 2 files, data1.txt and data2.txt, in it.
+
+```{bash}
+touch experiment/data1.txt
+touch experiment/data2.txt
+ls experiment/
+```
+
+Or alternatively:
+
+```{bash}
+cd experiment/
+touch data1.txt
+touch data2.txt
+ls
+data1.txt  data2.txt
+```
+
+31. Remove the second file in the experiment directory with that include 2 in their name.
+
+```{bash}
+rm experiment/*2*
+```
+
+Or alternatively:
+
+```{bash}
+cd experiment/
+rm *2*
+```
+
+32. Copy the experiment directory to a new directory named backup_experiment.
+
+```{bash}
+cd
+cp -r experiment/ backup_experiment
+```
+
+33. Remove the experiment directory.
+
+```{bash}
+rm -r experiment/
+```
+
+34. Rename the backup_experiment directory as experiment.
+
+```{bash}
+mv backup_experiment/ experiment
+```
+
+35. Which was the last file modified in the /etc directory?
+
+```{bash}
+ls -ltr /etc/
+```
+
+36. Repeat the last exercise, but list only the last five results.
+
+```{bash}
+ls -ltr /etc/ | tail -n 5
+```
+
+37. How many files and directories are in the /etc directory?
+
+```{bash}
+ls /etc/ | wc
+```
+
+38. Store the names of the files and directories located in the /etc directory in a file named etc.list.
+
+```{bash}
+ls /etc/ > etc.list
+less etc.list
+```
+
+39. Try to remove the /etc directory.
+
+```{bash}
+rm -rf /etc/
+```
+
+# Manupulating reads from a FASTA file
+
+40. Create a fasta file containing the query sequence using echo called seq.fasta
+
+```{bash}
+echo ">query seq" > seq.fasta
+cat seq.fasta
+```
+
+41. Add the sequence **MLLFAPCGCNNLIVEIGQRCCRFSCKNTPCPMVHNITAKVTNRTKYPKHLKEVYDVLGGSAAWE** in the seq.fasta file and display the content.
+
+```{bash}
+echo MLLFAPCGCNNLIVEIGQRCCRFSCKNTPCPMVHNITAKVTNRTKYPKHLKEVYDVLGGSAAWE >> seq.fasta
+cat seq.fasta
+
+```
+
+Now, given all that you have learned so far, we are going to extract reads from a FASTA file based on IDs supplied in a file. Say, we are given a FASTA file
+
+42. Display the content of the file by using one of the commands you've learned\
+```{bash}
+cat data/test.fa
+```
+
+43. How many entries are in that fasta file? \ Hint: Use the *grep* command to search for the pattern **>**. Remember you can combine commands with a |\
+```{bash}
+grep '>' data/test.fa | wc -l
+```
+
+
+# Exploring FASTQ files
+
+```{bash}
+zcat data/example.fastq.gz
+zless data/example.fastq.gz | awk 'NR%4 == 2 {lengths[length($0)]++} END {for (l in lengths) \
+{print l, lengths[l]}}' 
+```
+ 
+Print length of each sequence
+```{bash}
+zless data/example.fastq.gz | awk 'NR%4 == 2 {lengths[length($0)]++} END {for (l in lengths) \
+{print l, lengths[l]}}' 
+```
+
+Sneak preview to duplication rate of reads
+```{bash}
+gunzip -dc data/example.fastq.gz | head -n 1000000 | awk '{ if(NR%4==2) { print $1 } }' | sort | uniq -c | sort -g > sorted_duplicated
+```
+
+Convert fastq to fasta
+```{bash}
+paste - - - - < in.fq | cut -f 1,2 | sed 's/^@/>/' | tr "\t" "\n" > out.fa
+```
+
+# Exploring VCF file
+Count all the variants called in all the vcf files
+```{bash}
+cat *.vcf | grep -v '^#' | wc -l
+```
+
+Count all the variants in three vcf files
+```{bash}
+cat *.raw.vcf | grep -v '^#' | awk '{print $1 "\t" $2 "\t" $5}' | sort | uniq -c | grep ' 3 ' | wc -l
+```
+
+# Exploring SAM files
+
+How many lines has the SAM file?
+```{bash}
+wc -l data/sample.sam
+```
+
+How many lines start with '@', which is the comment symbol in the SAM format
+```{bash}
+grep '^@' data/sample.sam | wc -l
+```
+
+Write the FLAG field (second field) to a file called flags.txt\
+Pipe the grep results to awk to print the second field.\
+```{bash}
+grep -v '@' data/sample.sam | awk '{ print $2 }' > flags.txt
+head flags.txt
+```
+
+Sort and summarize (using uniq) flags.txt\
+```{bash}
+sort -nr flags.txt | uniq -c
+```
+
+Sort the results on number of times observed (the first field)
+```{bash}
+sort -nr flags.txt | uniq -c | sort -nr
+```
+
+# Exploring annotation (GFF) file
+Let's work on the annotation file in the data directory
+
+Show the first lines of the gff file
+```{bash}
+head data/PlasmoDB-37_Pfalciparum3D7.gff
+```
+
+Show the last lines of the gff file
+```{bash}
+tail data/PlasmoDB-37_Pfalciparum3D7.gff
+```
+
+Display content 
+```{bash}
+cat data/PlasmoDB-37_Pfalciparum3D7.gff
+
+# alternatively:
+# less data/PlasmoDB-37_Pfalciparum3D7.gff
+```
+
+Determine the number of different genes are present in the file.\
+- Hint: Use the *grep* command to search for pattern\
+```{bash}
+grep 'genes' data/PlasmoDB-37_Pfalciparum3D7.gff | wc -l
+```
+
+Save the rows that contain the word “**gene**” as a separate file. Call the new file “Genes.txt”\
+```{bash}
+grep 'genes' data/PlasmoDB-37_Pfalciparum3D7.gff > Genes.txt
+```
+
+How many genes are in Genes.txt? Hint: Count the number of lines using wc.\
+```{bash}
+cat Genes.txt | wc -l
+```
+
+# Exploring BED file
+Look at the first 10 lines of this file.
+```{bash}
+head data/Plasmo_Pf3D7.bed
+```
+
+Extract all lines that start with chr1 from the Plasmo_Pf3D7.bed and put them in a new text file “chr1_Plasmo_Pf3D7.bed”.
+
+```{bash}
+grep "^chr1" data/Plasmo_Pf3D7.bed > chr1_Plasmo_Pf3D7.bed
+
+```
+
+Remove everything after the . and save in a file called Pf3D7part.txt
+```{bash}
+awk -F'.' '{ print $1 }' data/Plasmo_Pf3D7.bed > Pf3D7part.txt
+head Pf3D7part.txt
+```
+
+How many different genes are in the file.
+
+```{bash}
+cut -f4  Pf3D7part.txt | sort | uniq | wc -l
+```
+
+Show all Plasmodium falciparum mRNA with more than 50 exons
+
+```{bash}
+awk '{ if ($10>50) print $4 }' data/Plasmo_Pf3D7.bed
+```
+
+Print the number of exons (field number 10) of mRNAs from the first chromosome.
+```{bash}
+grep '^chr1'  data/Plasmo_Pf3D7.bed | awk '{ print $10 }'
+```
+
+Obtain AT numbers (field 4) and exon info (field 11)
+```{bash}
+awk '{ print $4,",",$11 }'  data/Plasmo_Pf3D7.bed
+```

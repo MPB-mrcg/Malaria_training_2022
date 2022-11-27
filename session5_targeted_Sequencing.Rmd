@@ -1,0 +1,294 @@
+---
+title: "Session 5: Targeted Sequencing"
+author: "Archibald Worwui, Mouhamadou F. DIOP, Lucas A. Etego & Alfred A. NGWA"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+    html_document:
+        code_folding: show
+        toc: yes
+        toc_float: yes
+        theme: cerulean
+        highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Introduction 
+Targeted sequences use high-throughput next-generation sequencing (NGS) for analysis of genomic regions of interest across large numbers of samples with short turnaround times. It is therefore ideal for population studies, discovery and confirmation of SNPs and InDels and for the detection of rare variants. *Amplicon* Sequencing (AmpSeq) technology combines highly multiplexed PCR sequences of multiple barcoded samples in a single reaction. *Amplicons* include SNP, haplotypes, SSRs and presence/absence variants. 
+Here we’re going to run through one way to process an *Amplicon* dataset and then many of the standard, initial analyses. We’ll be working primarily in R, and then at the command line. So it’d be best if you already have some experience with both.
+
+## Primer transferability across species?
+
+- *Amplicons* have some degree of species specificity.
+- Best to design primers specific to target organism, but in the absence of existing reference, you may get useful information.
+
+## Advantages of targeted sequencing
+
+- Targeted sequencing is ideal for:
+- Focusing on specific regions of interest
+- Targeted analysis of microbial genes
+- Detecting rare variants, sequence-focused content from multiple samples in parallel using multiplexing
+- Achieving comprehensive coverage, yet generating a smaller, more reasonable amount of data
+- Identifying causative variants like SNPs and Indels across multiple genomic regions
+- Fast turnaround time for more samples
+
+## Getting the tutorial data
+
+In this session, we’re going to use a subset of Plasmodium Malariae dataset. To get started, be sure you are in your own command line. We will be working here for the first step of removing the primers too, so don’t switch over to RStudio environment until noted. 
+
+## DADA2
+
+We will be using [DADA2](https://benjjneb.github.io/dada2/index.html), which is a relatively new processing workflow for recovering single-nucleotide resolved *Amplicon* Sequence Variants (ASVs) from *Amplicon* data. Developed and maintained by [@bejcal](https://twitter.com/bejcal) et al., DADA2 leverages sequencing quality and abundance information to a greater extent than previously developed tools. It generates an error model based on your actual data, and then uses this error model to do its best to infer the original, true biological sequences that generated your data. The paper can be found [here](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4927377/), and the DADA2 R package can be found [here](https://benjjneb.github.io/dada2/tutorial.html). The DADA2 team has a great tutorial available [here](https://benjjneb.github.io/dada2/index.html). This page builds upon that with:
+
+1. heavier annotations and explanations to, in the style of this site all around, hopefully help new-comers to bioinformatics of course
+2. examples of common analyses to do in R after processing *Amplicon* data.
+
+## Installation
+To install DADA2 from Rstudio, you can use this command below or use one of [these approaches](https://benjjneb.github.io/dada2/dada-installation.html):
+
+```{r}
+# Install binaries from Bioconductor
+# Binary installation is available through the Bioconductor package repository. 
+# Binary installation of the current release version (1.16) requires R 4.0.0 and Bioconductor version 3.11:
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("dada2", version = "3.11")
+```
+
+
+## Processing overview
+It’s good to try to keep a bird’s-eye view of what’s going on. So here is an overview of the main processing steps we’ll be performing with [**cutadapt**](https://cutadapt.readthedocs.io/en/stable/index.html) and [**DADA2**](https://benjjneb.github.io/dada2/index.html). Don’t worry if anything seems unclear right now, we will discuss each at each step.
+
+This particular dataset is already demultiplexed – meaning each sample has its own file(s) already. Sometimes you will get your data all mixed together in one file, and you will need to separate them into individual files based on their barcodes. If your data are starting in that form, you can check out a demultiplexing example on this page if you’d like.
+
+In our working directory there are 20 samples with forward (R1) and reverse (R2) reads with per-base-call quality information, so 40 fastq files (.fq). I typically like to have a file with all the sample names to use for various things throughout, so here’s making that file based on how these sample names are formatted (make sure you are in the right directory from your “*Terminal*” window):
+
+```{bash}
+ls *_R1.fq | cut -f1 -d "_" > samples
+```
+
+## Removing primers
+
+To start, we need to remove the primers from all of these (the primers used for this run are in the “primers.fa” file in our working directory), and here we’re going to use **cutadapt** to do that at the command line (“Terminal” tab if in the binder environment). **cutadapt** operates on one sample at at time, so we’re going to use a wonderful little bash loop to run it on all of our samples.
+
+First, let’s just run it on one individual sample and breakdown the command:
+```{bash}
+cutadapt --version # 2.3
+cutadapt -a ^GTGCCAGCMGCCGCGGTAA...ATTAGAWACCCBDGTAGTCC \
+-A ^GGACTACHVGGGTWTCTAAT...TTACCGCGGCKGCTGGCAC \
+-m 215 -M 285 --discard-untrimmed \
+-o B1_sub_R1_trimmed.fq -p B1_sub_R2_trimmed.fq \
+B1_sub_R1.fq B1_sub_R2.fq
+```
+
+Don’t worry about the backslashes \, they are just there to ignore the return characters that come right after them (and are invisible here) that I’ve put in so this is organized a little more clearly, rather than as one long single line. Moving on to dissecting what the command is doing here, **cutadapt** does a lot of different things, and there is excellent documentation at their site. I learned about what we’re specifying here from their “Trimming (*Amplicon*-) primers from both ends of paired-end reads” page (See? I told you they had awesome documentation). Because our paired reads in this case were sequenced longer than the span of the target *Amplicon* (meaning, we did 2x300 bp sequencing, and the targeted V4 region is shorter than that), we will typically have both primers in each forward and reverse read. **cutadapt** handles “linked” adapters perfectly for such a case. We are specifying the primers for the forward read with the -a flag, giving it the forward primer (in normal orientation), followed by three dots (required by **cutadapt** to know they are “linked”, with bases in between them, rather than right next to each other), then the reverse complement of the reverse primer (I found this excellent site for converting to reverse complement while treating degenerate bases properly). Then for the reverse reads, specified with the -A flag, we give it the reverse primer (in normal 5’-3’ orientation), three dots, and then the reverse complement of the forward primer. Both of those have a ^ symbol in front at the 5’ end indicating they should be found at the start of the reads (which is the case with this particular setup). The minimum read length (set with -m) and max (set with -M) were based roughly on 10% smaller and bigger than would be expected after trimming the primers. **These types of settings will be different for data generated with different sequencing, i.e. not 2x300, and different primers. --discard-untrimmed states to throw away reads that don’t have these primers in them in the expected locations. Then -o specifies the output of the forwards reads, -p specifies the output of the reverse reads, and the input forward and reverse are provided as positional arguments in that order.
+
+Here’s a before-and-after view of just that sample:
+
+```{bash}
+## R1 BEFORE TRIMMING PRIMERS
+head -n 2 B1_sub_R1.fq
+
+## R1 AFTER TRIMMING PRIMERS
+head -n 2 B1_sub_R1_trimmed.fq
+
+## R2 BEFORE TRIMMING PRIMERS
+head -n 2 B1_sub_R2.fq
+
+## R2 AFTER TRIMMING PRIMERS
+head -n 2 B1_sub_R2_trimmed.fq
+
+```
+
+It’s important to notice that not only is the forward primer (GTGCCAGCAGCCGCGGTAA) trimmed off of the forward read at the start of it, but also that the reverse complement of the reverse primer (ATTAGATACCCGGGTAGTCC) is trimmed off of the end of it. Same goes for the R2 reads. (Though again, if for your data the sequencing done doesn’t span the entire target *Amplicon*, then you will only have the forward primer on the forward reads, and the reverse primer on the reverse reads).
+
+Now, on to doing them all with a loop, here is how we can run it on all our samples at once. Since we have a lot of samples here, I’m redirecting the “stdout” (what’s printing the stats for each sample) to a file so we can more easily view and keep track of if we’re losing a ton of sequences or not by having that information stored somewhere – instead of just plastered to the terminal window. We’re also going to take advantage of another convenience of **cutadapt** – by adding the extension .gz to the output file names, it will compress them for us.
+```{bash}
+for sample in $(cat samples)
+do
+
+    echo "On sample: $sample"
+    
+    cutadapt -a ^GTGCCAGCMGCCGCGGTAA...ATTAGAWACCCBDGTAGTCC \
+    -A ^GGACTACHVGGGTWTCTAAT...TTACCGCGGCKGCTGGCAC \
+    -m 215 -M 285 --discard-untrimmed \
+    -o ${sample}_sub_R1_trimmed.fq.gz -p ${sample}_sub_R2_trimmed.fq.gz \
+    ${sample}_sub_R1.fq ${sample}_sub_R2.fq \
+    >> cutadapt_primer_trimming_stats.txt 2>&1
+
+done
+
+```
+
+You can look through the output of the **cutadapt** stats file we made (“*cutadapt_primer_trimming_stats.txt*”) to get an idea of how things went. Here’s a little one-liner to look at what fraction of reads were retained in each sample (column 2) and what fraction of bps were retained in each sample (column 3):
+```{bash}
+paste samples <(grep "passing" cutadapt_primer_trimming_stats.txt | cut -f3 -d "(" | tr -d ")") <(grep "filtered" cutadapt_primer_trimming_stats.txt | cut -f3 -d "(" | tr -d ")")
+
+```
+
+We would expect to lose around 13-14% of bps just for cutting off the primers, and the remainder of lost bps would be from the relatively low percent of those reads totally removed (~92-97% across the samples), which could happen for reasons discussed above.
+
+With primers removed, we’re now ready to switch R and start using DADA2!
+
+## Processing with DADA2 in R
+
+As noted above, if you aren’t familiar with R at all yet it’s probably a good iea to run through the R basics page first. A full R script containing everything done here called “all_R_commands.R” is in our working directory. That file can be opened in RStudio if you prefer to follow along with that rather than copying and pasting commands from here. To open that document in the Binder environment, in the “Files” window at the bottom right, click on the “dada2_Amplicon_ex_workflow” directory, then click on “all_R_commands.R”. This will open an additional window at the top left (pushing your “Console”/”Terminal” window down halfway). This new window is a text editor within which you can also run code. To run code in there, on the line you’d like to run press CMD + ENTER on a Mac, or CTRL + ENTER on a Windows computer. If you’d like to open a new, blank document in this text editor window inside of RStudio (whether in the Binder or on your own system), you can click the icon at the top left that looks like a white square with a plus sign over it, and then click “R Script”. It’s in that text editor window you’ll want to paste in the commands below and then run them, or be running them from the “all_R_commands.R” file if you’d rather, but mostly you won’t be typing or pasting commands into the “Console”.
+
+```{r}
+library(dada2)
+packageVersion("dada2") 
+
+setwd("~/dada2_Amplicon_ex_workflow")
+
+list.files() # make sure what we think is here is actually here
+
+## first we're setting a few variables we're going to use ##
+# one with all sample names, by scanning our "samples" file we made earlier
+samples <- scan("samples", what="character")
+
+# one holding the file names of all the forward reads
+forward_reads <- paste0(samples, "_sub_R1_trimmed.fq.gz")
+
+# and one with the reverse
+reverse_reads <- paste0(samples, "_sub_R2_trimmed.fq.gz")
+
+# and variables holding file names for the forward and reverse
+# filtered reads we're going to generate below
+filtered_forward_reads <- paste0(samples, "_sub_R1_filtered.fq.gz")
+filtered_reverse_reads <- paste0(samples, "_sub_R2_filtered.fq.gz")
+```
+
+## Quality trimming/filtering
+
+We did a filtering step above with **cutadapt** (where we eliminated reads that had imperfect or missing primers and those that were shorter than 215 bps or longer than 285), but in *DADA2* we’ll implement a trimming step as well (where we trim reads down based on some quality threshold rather than throwing the read away). Since we’re potentially shortening reads further, we’re again going to include another minimum-length filtering component. We can also take advantage of a handy quality plotting function that *DADA2* provides to visualize how you’re reads are doing, **plotQualityProfile()**. By running that on our variables that hold all of our forward and reverse read filenames, we can easily generate plots for all samples or for a subset of them. So let’s take a peak at that to help decide our trimming lengths:
+```{r}
+plotQualityProfile(forward_reads)
+plotQualityProfile(reverse_reads)
+ 
+# and just plotting the last 4 samples of the reverse reads
+plotQualityProfile(reverse_reads[17:20])
+
+```
+
+All forwards look pretty similar to eachother, and all reverses look pretty similar to each other, but worse than the forwards, which is common – chemistry gets tired
+
+On these plots, the bases are along the x-axis, and the quality score on the y-axis.  
+- black underlying heatmap shows the frequency of each score at each base position, 
+- green line is the mean quality score at that base position, 
+- orange is the median, and the dashed orange lines show the quartiles. 
+- The red line at the bottom shows what percentage of reads are that length.
+
+In Phred talk the difference between a quality score of 40 and a quality score of 20 is an expected error rate of 1 in 10,000 vs 1 in 100. In this case, since we have full overlap with these primers and the sequencing performed (515f-806r, 2x300), we can be pretty conservative and trim these up a bit more. But it’s important to think about your primers and the overlap you’re going to have. Here, our primers span 515-806 (291 bases), and we cut off the primers which were 39 bps total, so we are expecting to span, nominally, 252 bases. If we trimmed forward and reverse here down to 100 bps each, we would not span those 252 bases and this would cause problems later because we won’t be able to merge our forward and reverse reads. Make sure you’re considering this based on your data. Here, I’m going to cut the forward reads at 250 and the reverse reads at 200 – roughly where both sets maintain a median quality of 30 or above – and then see how things look. But we also want to set a minimum length to filter out those that are too short to overlap (by default, this function truncates reads at the first instance of a quality score of 2, this is how we could end up with reads shorter than what we are explicitly trimming them down to).
+
+In DADA2, this quality-filtering step is done with the filterAndTrim() function:
+```{r}
+filtered_out <- filterAndTrim(forward_reads, filtered_forward_reads,
+                reverse_reads, filtered_reverse_reads, maxEE=c(2,2),
+                rm.phix=TRUE, minLen=175, truncLen=c(250,200))
+```
+
+Here, the first and third arguments (“forward_reads” and “reverse_reads”) are the variables holding our input files, which are our primer-trimmed output fastq files from **cutadapt**. The second and fourth are the variables holding the file names of the output forward and reverse seqs from this function. And then we have a few parameters explicitly specified. maxEE is the quality filtering threshold being applied based on the expected errors and in this case we are saying we want to throw the read away if it is likely to have more than 2 erroneous base calls (we are specifying for both the forward and reverse reads separately). rm.phix removes any reads that match the PhiX bacteriophage genome, which is typically added to Illumina sequencing runs for quality monitoring. And minLen is setting the minimum length reads we want to keep after trimming. As mentioned above, the trimming occurring beyond what we set with truncLen is coming from a default setting, truncQ, which is set to 2 unless we specify otherwise, meaning it trims all bases after the first quality score of 2 it comes across in a read. There is also an additional filtering default parameter that is removing any sequences containing any Ns, maxN, set to 0 by default. Then we have our truncLen parameter setting the minimum size to trim the forward and reverse reads to in order to keep the quality scores roughly above 30 overall.
+
+As mentioned, the output read files were named in those variables we made above (“filtered_forward_reads” and “filtered_reverse_reads”), so those files were created when we ran the function – we can see them if we run *list.files()* in R, or by checking in our working directory in the terminal:
+```{bash}
+ls -lh | head
+```
+
+But we also generated an object in R called filtered_out. And that’s a matrix holding how many reads went in and how many reads made it out:
+
+```{r}
+class(filtered_out) # matrix
+dim(filtered_out) # 20 2
+
+filtered_out
+```
+
+Now let’s take a look at our filtered reads:
+
+```{r}
+plotQualityProfile(filtered_forward_reads)
+plotQualityProfile(filtered_reverse_reads)
+plotQualityProfile(filtered_reverse_reads[17:20])
+```
+
+## Generating an error model of our data
+
+Next up is generating our error model by learning the specific error-signature of our dataset. Each sequencing run, even when all goes well, will have its own subtle variations to its error profile. This step tries to assess that for both the forward and reverse reads. It is one of the more computationally intensive steps of the workflow. For this slimmed dataset on a 2013 MacBook Pro laptop, these took about 10 minutes each without multithread=TRUE, and each took about 5 minutes with that option added. If you are working on your own system, you can feel free to run the two commands with the multithread=TRUE option set. I have the multithreaded way commented out in the codeblock below because it can cause problems when working in the Binder environment. If you’re working in the Binder, each will take about 15 minutes – so 30 minutes total. And if you don’t want to run them and wait, you can load all the R objects and skip whatever steps you’d like with load("*Amplicon*_dada2_ex.RData").
+
+```{r}
+err_forward_reads <- learnErrors(filtered_forward_reads)
+# err_forward_reads <- learnErrors(filtered_forward_reads, multithread=TRUE) # problem running this way if on Binder
+err_reverse_reads <- learnErrors(filtered_reverse_reads)
+# err_reverse_reads <- learnErrors(filtered_reverse_reads, multithread=TRUE) # problem running this way if on Binder
+
+```
+
+The developers have incorporated a plotting function to visualize how well the estimated error rates match up with the observed:
+```{r}
+plotErrors(err_forward_reads, nominalQ=TRUE)
+plotErrors(err_reverse_reads, nominalQ=TRUE)
+```
+
+@bejcal goes into how to assess this a bit here. The red line is what is expected based on the quality score, the black line represents the estimate, and the black dots represent the observed. This is one of those cases where this isn’t a binary thing like “yes, things are good” or “no, they’re not”. I imagine over time and seeing outputs like this for multiple datasets you get a better feeling of what to expect and what should be more cause for alarm (as was the case for me with interpreting and making decisions based on quality-score plots like those fastQC produces). But generally speaking, you want the observed (black dots) to track well with the estimated (black line). @bejcal notes here that you can try to improve this by increasing the number of bases the function is using (default 100 million).
+
+## Dereplication
+
+Dereplication is a common step in many *Amplicon* processing workflows. Instead of keeping 100 identical sequences and doing all downstream processing to all 100, you can keep/process one of them, and just attach the number 100 to it. When DADA2 dereplicates sequences, it also generates a new quality-score profile of each unique sequence based on the average quality scores of each base of all of the sequences that were replicates of it.
+```{r}
+derep_forward <- derepFastq(filtered_forward_reads, verbose=TRUE)
+names(derep_forward) <- samples # the sample names in these objects are initially the file names of the samples, this sets them to the sample names for the rest of the workflow
+derep_reverse <- derepFastq(filtered_reverse_reads, verbose=TRUE)
+names(derep_reverse) <- samples
+
+```
+
+After the denoising process using *DADA2*, the filtering FASTQ files can be used to call variants. The process of calling variants from whole genome is applicable to targeted sequences.
+
+## Sudo reference genome
+When working with amplicons, it is good practice to generate a sudo reference genome which will contain the genomic information for your targeted sequences. In the case of the Plasmodium species, this can easily be done by identifying your gene ids and passing it through the plasmodb database. The resulting fasta files (which will now be your reference genome) can be used in the process of calling your variants. For example, to get the PfCRT reference genome, you can use its id "PF3D7_0709000" to obtain its coresponding reference genome file. 
+
+## Alignment
+For the process of calling variants, we will first start with aligning the denoised data obtained from dada2 to the sudo reference genome downloaded from plasmodb. In bioinformatics, a sequence alignment is a way of arranging the sequences of DNA, RNA, or protein to identify regions of similarity that may be a consequence of functional, structural, or evolutionary relationships between the sequences. There are many different tools out ther that can be used for alignment. This includes but are not limited to bwa, bowtie, star, etc. Today we will be using the bwa alignment tool. Aligning the reads to the reference genome will generate a sam output which is then converted to bam, filtered and sorted using samtools. Samtools can also be used to mark duplicates but we will be using a tool called picard and the output will be indexed using samtools.
+
+SAM and BAM
+A SAM file (usually named *.sam) is used to represent aligned sequences. It is particularly useful for storing the results of aligning genomic or transcriptomic sequence reads aligned against a reference genome sequence. The BAM file format is a compressed form of SAM. This has the disadvantage that it is not readable by a human but has the advantage of being smaller than the corresponding SAM file and thus easier to share and copy between locations.
+
+Indexing refernce genomes
+Genome indexing is one type pre processing to compress the size of text and to make queries fast. Indexing a genome can be explained similar to indexing a book. If you want to know on which page a certain word appears or a chapter begins, it is much more efficient/faster to look it up in a pre-built index than going through every page of the book until you found it. 
+
+```{bash}
+    bwa index refGenome/refernce.fasta
+    sample=A1_S1_L001_R1_001
+    
+    bwa mem -t 10 -M -R '@RG\\tID:${sample}\\tLB:${sample}\\tPL:illumina\\tPM:nextseq\\tSM:${sample}' refGenome/refernce.fasta fastq1/A1_S1_L001_R1_001.fastq.gz fastq2/A1_S1_L001_R2_001.fastq.gz > A1_S1_L001_R2_001.sam
+    
+    samtools view -@ 10 -F 4 -b A1_S1_L001_R2_001.sam |samtools sort -@ 10 -o A1_S1_L001_R2_001.bam  
+    
+    java -jar /shared/software/picard-2.18.14/picard.jar MarkDuplicates I=A1_S1_L001_R2_001.bam O=A1_S1_L001_R2_001_markedDup.bam M=A1_S1_L001_R2_001_metric.txt VALIDATION_STRINGENCY=SILENT
+    
+    samtools index -b -@ 10 A1_S1_L001_R2_001_markedDup.bam
+
+```
+
+
+## Calling Variants
+Variant calling is the process by which we identify variants from sequence data. The reference genome is the standard for the species of interest. This allows us to identify genotypes. As most genomes are diploid, we expect to see that at any given locus, either all reads have the same base, indicating homozygosity, or approximately half of all reads have one base and half have another, indicating heterozygosity. An exception to this would be the sex chromosomes in male mammals. There are a lot of variant calling tools for illumina reads eg, gatk, freebayes, bcftools, etc. Today we will be using bcftools
+
+VCF Files
+VCF is the standard file format for storing variation data. It is used by large scale variant mapping projects. It is also the standard output of most variant calling softwares such as gatk, freebayes, bcftools, etc. VCF is a preferred format because it is unambiguous, scalable and flexible, allowing extra information to be added to the info field. Many millions of variants can be stored in a single VCF file. 
+
+VCF files are tab delimited text files.
+
+```{bash}
+#Do the first pass on variant calling by counting read coverage with bcftools. We will use the command mpileup.
+		 bcftools mpileup -f $referenceGenome -b A1_S1_L001_R2_001_markedDup.bam -o A1_S1_L001_R2_001_mpileup.vcf.gz -O z --threads 50
+		 
+		 #Identify SNVs using bcftools call
+		 bcftools call -mv --multiallelic-caller --variants-only -o  A1_S1_L001_R2_001_mpileup.vcf.gz -Oz A1_S1_L001_R2_001_Call.vcf.gz
+		 
+		 #Filter the SNVs for the final output in VCF format
+		 bcftools filter -s LowQual -g3 -G10 -o A1_S1_L001_R2_001_filtered.vcf.gz -Oz -S . -e'%QUAL<10 || MQ<20 || (RPB<0.1 && %QUAL<15) || (AC<2 && %QUAL<15)' A1_S1_L001_R2_001_Call.vcf.gz 
+```
+	

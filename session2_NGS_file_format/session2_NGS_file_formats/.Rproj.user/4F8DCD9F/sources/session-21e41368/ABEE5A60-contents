@@ -1,0 +1,559 @@
+---
+title: "Session 2: HANDLING NGS DATA"
+author: "Archibald Worwui & Mouhamadou Fadel DIOP"
+date: "Decembre 3, 2022 "
+output:
+    html_document:
+        code_folding: show
+        toc: yes
+        toc_float: yes
+        theme: cerulean
+        highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Raw read exploration
+
+***
+
+## Understanding NGS data
+
+### 1. Fastq format
+
+Let’s have a look at the first sequence from our raw read files which are stored in the [fastq format](https://en.wikipedia.org/wiki/FASTQ_format). We need to visualize the first four lines to have a look at the information stored for the first sequence.
+
+First we set the name of the fastq file that we will work with as the variable **FILE**. Then, we copy that file to our directory. Finally, we will examine the first 4 lines. However, we cannot just directly write head **-4 $FILE** like we might with a normal text file because the fastq file is actually compressed. It is thus a binary file which cannot just be read. Luckily, there are many commands that can directly read binary files. Instead of **cat**, which we saw in the Unix introduction, we use **zcat**, instead of **grep**, we use **zgrep**. If we want to use any other command, we need to read the file with **zcat** and then pipe the output into our command of choice such as **head** or **tail**.
+
+```{bash eval= FALSE}
+
+# First, we will make a folder to work in
+mkdir *fastqc*
+cd *fastqc*
+
+# Now let's specify FILE as the name of the file containing the forward reads
+FILE="wgs.R1.fastq.gz"
+cp /home/data/fastq/${FILE} ./
+
+# Let's have a look at the first read:
+zcat ${FILE} | head -4
+```
+
+These are the four lines which make up the information for each read. You can learn more about what they each mean [here](https://en.wikipedia.org/wiki/FASTQ_format). Now the file is in our directory and readable, let’s count the number of lines:
+
+```{bash, eval=FALSE}
+zcat ${FILE} | wc -l
+```
+
+The number of sequences is thus this number divided by 4, or we can count the number of lines starting with the header
+
+```{bash, eval=FALSE}
+zgrep "@J00" ${FILE} -c
+```
+
+We might think that we could have just counted the number of @ - i.e. the first symbols for each header.
+
+```{bash eval=FALSE}
+zgrep "@" ${FILE} -c
+```
+
+However, we see that this does not give us the same number. The reason is that @ is also used as a symbol for encoding [quality scores](https://en.wikipedia.org/wiki/Phred_quality_score) and thus some quality score lines were also counted.
+
+### 2. Assessing read quality with *fastqc*
+
+To assess the read quality, we use *fastqc* which is extremely easy to run and can be run with the name of the fastq file as the only argument. It can aslo handle gzipped files.
+
+To get help on *fastqc*:
+
+```{bash eval=FALSE}
+fastqc -h | less
+```
+
+Let’s run *fastqc* on our read subsets:
+
+```{bash eval=FALSE}
+fastqc $FILE
+```
+
+We should now also run **fastqc** on the file or reverse reads. As we do not need copies of these files in all of your personal directories, we will just write the file names with the paths.
+
+**fastqc** allows an output directory with the *-o* flag. We will thus just work in our home directories and run **fastqc** giving the file name with its path and specifying the output folder as the current directory (i.e. -o ./).
+
+```{bash eval=FALSE}
+# Reverse reads
+FILE=wgs.R2.fastq.gz
+fastqc -o ./ /home/data/fastq/$FILE
+
+# Let's also have a look at some RAD data  and a Novaseq whole genome dataset
+# Because we do not want to type the fastqc command many times, we will use a for loop
+for PREFIX in RAD1 RAD2 Novaseq.R2 Novaseq.R1
+do
+fastqc -o ./ /home/data/fastq/${PREFIX}.fastq.gz
+done
+```
+
+Now, we need to download the html files to the local computer for visualization. To download files, mac and linux users can use the command *scp*, Windows users can use *FileZilla* ([see instructions here](https://speciationgenomics.github.io/logging_on/)). You can then open the html file with any internet browser.
+
+Here some slides on interpreting *fastqc* html output.
+
+### 3. Challenging exercises for the bash wizards and those with extra time left
+
+In the *Pf.fastq.gz* there are some reads with very low GC content which likely represent reads of contaminants. Find the 10 reads with the lowest GC content and check what they are by blasting them.
+
+Here one very condensed solution: Try to find your own solution first!
+
+```{bash, eval=FALSE}
+FILE=PF_data
+
+cp /home/data/fastq/${FILE} ./
+
+#Add GC content to each read in fastq file to check reads with highest or lowest GC contents:
+zcat ${FILE}.fastq.gz | awk 'NR%4==2' | awk '{split($1,seq,""); gc=0; at=0; n=0; for(base in seq){if(seq[base]=="A"||seq[base]=="T") at++; else if(seq[base]=="G"||seq[base]=="C") gc++; else n++}; print $0,gc/(at+gc+n)*100,n}' > ${FILE}.gc
+
+#Lowest GC content:
+sort -k 2 -t " " ${FILE}.gc | head
+
+#Highest GC content:
+sort -k 2 -t " " ${FILE}.gc | tail
+
+#Get the worst 10 sequences with all information:
+zcat ${FILE}.fastq.gz | grep -f <(sort -k 2 -t " " ${FILE}.gc | tail | cut -d" " -f 1) -A 2 -B 1 > ${FILE}.lowGC
+
+# Make a new fastq file with these reads:
+grep -v "^--" ${FILE}.lowGC | gzip > ${FILE}.lowGC.fastq.gz
+```
+
+As a second exercise, try to generate a new file from the fastqz file containing every 1000th read. This is useful as subsampling is often needed to test software. Fastqc will take very long and a lot of memory if it needs to read in a giant file. It is thus better to subsample if you have large fastq files.
+
+```{bash eval=FALSE}
+# Forward (R1) reads
+zcat /home/data/fastq/wgs.R1.fastq.gz | awk '{printf("%s",$0); n++; if(n%4==0){
+printf("\n")}else{printf("\t")} }' | awk 'NR == 1 || NR % 1000 == 0' | tr "\t" "\n" | gzip > wgs.R1.subsampled.fastq.gz &
+
+# Reverse (R2) reads
+zcat /home/data/fastq/wgs.R2.fastq.gz | awk '{printf("%s",$0); n++; if(n%4==0){
+printf("\n")}else{printf("\t")} }' | awk 'NR == 1 || NR % 1000 == 0' | tr "\t" "\n" | gzip > wgs.R2.subsampled.fastq.gz &
+```
+
+
+## Filtering reads
+
+### 1. Trimming reads and removing adapter sequences and polyG tails
+
+Sometimes *Illumina* adapter sequences are still present in some reads because adapters can form adapter *dimers* and then one of them gets sequenced or if a DNA fragment is shorter than the read length, the sequencer continues to “read-through” into the adapter at the end of the DNA fragment. In the latter case the forward and the reverse read will contain adapter sequences, which is called a “palindrome”. While a full adapter sequence can be identified relatively easily, reliably identifying a short partial adapter sequence is inherently difficult. However, if there is a short partial adapter present at the end of the forward read and the beginning of the reverse read, that is a good sign for a “palindrome” sequence. To anyone using *Novaseq*, or any *NextSeq Illumina* technology. Watch out for *overrepresented polyG* sequences (weirdly long sequences of GGGGGGG), particularly in the reverse reads. This is a problem of the latest *Illumina* instruments that use a [two-colour system](https://sequencing.qcfail.com/articles/illumina-2-colour-chemistry-can-overcall-high-confidence-g-bases/) to infer the bases. A lack of signal is called as G with high confidence. These *polyG* tails need to be removed or the read will not map well to the reference genome. Reads that start or end with very low quality can be aligned better if the bad quality parts are trimmed off. We will use [fastp](https://github.com/OpenGene/fastp) to fix all of these issues. *fastp* can remove low quality reads, adapters and *polyG* tails. It even automatically detects what adapters were used. There are also other excellent read filtering and trimming tools such as [Trimmomatic](https://speciationgenomics.github.io/Trimmomatic/) or the fast tool [Ktrim](https://academic.oup.com/bioinformatics/article/36/11/3561/5803071). *fastp* also generates a html file that shows the read quality before and after filtering.
+
+```{bash}
+
+# Check the options of fastp
+fastp -h
+
+# Now let's again make a folder to work in
+cd ~
+mkdir filteredReads
+cd filteredReads
+
+# Let's get the wgs read files:
+cp /home/data/fastq/wgs.R*.fastq.gz ./
+
+# Run fastp
+fastp --in1 wgs.R1.fastq.gz --in2 wgs.R2.fastq.gz --out1 wgs.R1.trimmed.fastq.gz --out2 wgs.R2.trimmed.fastq.gz -l 50 -h wgs.html &> wgs.log
+
+# Note &> redirects the information on what it did into the file wgs.log (both stderror and stdout are written into this file)
+
+# Let's have a look at what files fastp produced:
+ls
+# You can see that it produced the two output files we specified and also an html and a json file which shows some quality information
+```
+
+**Parameters specified here:**
+
+-    --in1 and --in2: specify your files of forward (1) reads and of the reverse (2) reads.
+-    --out1 and --out2: specify the output files for forward and reverse reads that are still Paired.
+-    -l 50: this specifies that if a read is shorter than 50 basepairs after all filters, it should be removed.
+-    -h: specifies name for the html file with plots showing the read quality before and after filtering
+
+### 2. PolyG tail trimming
+
+This feature removes the polyG tails that arise from lack of signal in NextSeq/NovaSeq technologies. It is enabled for Nextseq/Novaseq data by default, and you can specify -g to enable it for any data, or specify -G to disable it.
+
+### 3. Removal of adapter sequences
+
+Adapter trimming is enabled by default, but you can disable it with -A. Adapter sequences can be automatically detected for both PE/SE data.
+
+### 4. Length filter
+
+Reads below the length threshold (e.g. due to adapter removal) are removed. Length filtering is enabled by default. The minimum length requirement is specified with -l.
+
+### 5. Quality filtering
+
+Quality filtering is enabled by default, but you can disable it with -Q. Currently fastp supports filtering by limiting the number of uncalled (N) bases (-n, Default 5) and the percentage of unqualified bases. To filter reads by its percentage of unqualified bases, two options should be provided:
+
+-    -q : Quality threshold per base required. Default: 15, which means that a Phred quality score of at least 15 is required
+-    -u : Percent of bases allowed to be below the quality threshold to keep the read (0~100). Default 40 means 40% bases can fail the quality threshold. If more bases fail, the read is removed.
+
+## Mapping to a reference genome
+One of the first steps we need to take along our pathway to population/speciation genomic analyses is mapping our data to a reference genome.
+
+Using alignment software, we essentially find where in the genome our reads originate from and then once these reads are aligned, we are able to either call variants or construct a consensus sequence for our set of aligned reads.
+
+### 1. Getting access to the reference genome
+
+We will be aligning our sequence data to the Pundamilia nyererei reference genome, first published by [Brawand et al. (2014)](https://www.nature.com/articles/nature13726) and more recently updated using a linkage map by [Feulner et al. (2018)](https://academic.oup.com/g3journal/article/8/7/2411/6027104).
+
+You will find a copy of the reference genome in the **/home/data/reference/** directory. Make a reference directory in your own home directory and then copy the **reference** genome like so:
+
+```{bash}
+cd ~
+mkdir reference
+cd reference
+cp /home/data/reference/P_nyererei_v2.fasta.gz .
+```
+
+The file we copied is compressed with *gzip*, so before we can do anything with it, we need to decompress it. Usually we avoid decompressing files but it was compressed here because of it’s large size and we need it to be uncompressed for it to be used properly in our analysis. So to do this we simply use *gunzip*:
+
+```{bash}
+gunzip P_nyererei_v2.fasta.gz
+```
+
+
+In order to align reads to the genome, we are going to use bwa which is a very fast and straightforward aligner. See [here](https://bio-bwa.sourceforge.net/) for more details on bwa.
+
+#### 1.1 Indexing the reference genome
+
+Before we can actually perform an alignment, we need to index the reference genome we just copied to our home directories. This essentially produces an index for rapid searching and aligning. We use the **bwa index** tool to achieve this. However, the command takes some time to run, so we will use a useful Unix utility called *screen* to run it in the background (we will return to why it is advantageous to use screen momentarily).
+
+Use the following command to start a screen:
+
+```{bash}
+screen -S index
+```
+
+The terminal should flicker and you will now be in another screen. You can prove this to yourself with the following command:
+
+```{bash}
+screen -ls
+```
+
+This will list the running screens and should show you one called **index**. If you are inside this screen, you will also see that it is listed as attached.
+
+Now that you are sure you are inside the screen, run the following command.
+
+```{bash}
+bwa index P_nyererei_v2.fasta
+```
+
+Let’s breakdown what we actually did here. As you might imagine **bwa index** is a tool for indexing. We simply specify the reference fasta file from which to build our genome index.
+
+As you will have noticed by now, this command takes quite some time to run. Rather than sit there and wait, you can press *ctrl + ad* keys all together to shift back to the main screen (i.e. the one you started in).
+
+#### 1.2 Why screen?
+
+While we are waiting for the index to complete, this is a good moment to discuss the benefits of screen. You’ve already seen that screen allows you to run processes in the background, but in addition to that, screen also protects your session. If you are running an analysis and the terminal you are in crashes or your computer stops or something, it will send a kill signal to your analysis and stop it. However, if you have placed that analysis in another screen, this kill signal will not reach it - meaning you can safely log out and log back in to a node and your work will be running. This is just one way to run an analysis that will take a long time.
+
+To return to your screen at any time and check the analysis, use the following:
+
+```{bash}
+screen -rd
+```
+
+If you have multiple screens, you will need to specify the ID number - to discover this, use *screen -ls*.
+
+#### 1.3 Back to the indexing
+
+OK so hopefully by now, the indexing should have completed - on our cluster it takes about 15 mins. If not, then kill the process using *ctrl + c* and exit the screen by typing exit.
+
+To save time and to allow everyone to proceed at the same pace, we will instead copy some already built indexes to our home directory
+
+```{bash}
+cp /home/data/reference/P_nyererei_v2.fasta.* .
+```
+
+
+Use ls to take a look, but this will have copied in about 5 files all with the P_nyererei_v2.fasta. prefix that we will use for a reference alignment.
+
+When bwa aligns reads, it needs access to these files, so they should be in the same directory as the reference genome. Then when we actually run the alignment, we tell bwa where the reference is and it does the rest. To make this easier, we will make a variable pointing to the reference.
+
+```{bash}
+REF=~/reference/P_nyererei_v2.fasta
+```
+
+
+### 2. Performing a paired end alignment
+
+Now we are ready to align our sequences! To simplify matters, we will first try this on a single individual. First, we will create a directory to hold our aligned data:
+
+```{bash}
+cd ~
+mkdir align
+cd align
+```
+
+
+As a side note, it is good practice to keep your data well organised like this, otherwise things can become confusing and difficult in the future.
+
+To align our individual we will use bwa. You might want to first have a look at the options available for it simply by calling bwa. We are actually going to use bwa mem which is the best option for short reads.
+
+As we mentioned above, we will use the individual - 10558.PunPundMak which we have already trimmed. There are two files for this individual - R1 and R2 which are forward and reverse reads respectively.
+
+Let’s go ahead and align our data, we will break down what we did shortly after. Note that we run this command from the home directory.
+
+```{bash}
+bwa mem -M -t 4 $REF \
+/home/data/wgs_raw/10558.PunPundMak.R1.fastq.gz \
+/home/data/wgs_raw/10558.PunPundMak.R2.fastq.gz > 10558.PunPundMak.sam
+```
+
+
+Since we are only using a shortened fastq file, with 100K reads in it, this should just take a couple of minutes. In the meantime, we can breakdown what we actually did here.
+
+-    -M is a standard flag that tells bwa to mark any low quality alignments (i.e. split across long distances) as secondary - we need this for downstream compatability.
+-    -t tells bwa how many threads (cores) on a cluster to use - this effectively determines its speed.
+-    Following these options, we then specify the reference genome, the forward reads and the reverse reads. Finally we write the output of the alignment to a **SAM file**.
+
+Once your alignment has ended, you will see some alignment statistics written to the screen. We will come back to these later - first, we will learn about what a SAM file actually is.
+
+#### 2.1 SAM files
+
+Lets take a closer a look at the output. To do this we will use samtools. More details on samtools can be found [here](http://www.htslib.org/doc/samtools.html)
+
+```{bash}
+cd align
+samtools view -h 10558.PunPundMak.sam | head
+samtools view 10558.PunPundMak.sam | head
+```
+
+
+This is a SAM file - or sequence alignment/map format. It is basically a text format for storing an alignment. The format is made up of a header where each line begins with @, which we saw when we used the -h flag and an alignment section.
+
+The header gives us details on what has been done to the SAM, where it has been aligned and so on. We will not focus on it too much here but there is a very detailed SAM format specification [here](https://samtools.github.io/hts-specs/SAMv1.pdf).
+
+The alignment section is more informative at this stage and it has at least 11 fields. The most important for now are the first four. Take a closer look at them.
+
+```{bash}
+samtools view 10558.PunPundMak.sam | head | cut -f 1-4
+```
+
+
+Here we have:
+
+-    The sequence ID
+-    The flag - these have various meanings, 0 = mapped, 4 = unmapped
+-    Reference name - reference scaffold the read maps to
+-    Position - the mapping position/coordinate for the read
+
+**Note!!** The other fields are important, but for our purposes we will not examine them in detail here.
+
+Now, lets look at the mapping statistics again:
+
+```{bash}
+samtools flagstat 10558.PunPundMak.sam
+```
+
+
+This shows us that a total of 200k reads were read in (forward and reverse), that around 94% mapped successfully, 81% mapped with their mate pair, 1.94% were singletons and the rest did not map.
+
+#### 2.2 BAM files
+
+One problem with SAM files is that for large amounts of sequence data, they can rapidly become HUGE in size. As such, you will often see them stored as BAM files (Binary Aligment/Mapping format). A lot of downstream analyses require the BAM format so our next task is to convert our SAM to a BAM.
+
+```{bash}
+samtools view 10558.PunPundMak.sam -b -o 10558.PunPundMak.bam
+```
+
+
+Here the -b flag tells samtools to output a BAM and -o identifies the output path. Take a look at the files with ls -lah - you will see a substantial difference in their size. This would be even more striking if we were to map a full dataset.
+
+You can view bamfiles in the same way as before.
+
+```{bash}
+samtools view 10558.PunPundMak.bam | head
+```
+
+
+Note that the following will not work (although it does for SAM) because it is a binary format
+
+```{bash}
+head 10558.PunPundMak.bam
+```
+
+
+Before we can proceed to more exciting analyses, there is one more step we need to perform - sorting the bamfile. Most downstream analyses require this in order to function efficiently
+
+```{bash}
+samtools sort 10558.PunPundMak.bam -o 10558.PunPundMak_sort.bam
+```
+
+
+Once this is run, we will have a sorted bam. One point to note here, could we have done this is a more efficient manner? The answer is yes, actually we could have run all of these commands in a single line using pipes like so:
+
+```{bash}
+bwa mem -M -t 4 $REF /home/data/wgs_raw/10558.PunPundMak.R1.fastq.gz /home/data/wgs_raw/10558.PunPundMak.R2.fastq.gz | samtools view -b | samtools sort -T 10558.PunPundMak > ./align/10558.PunPundMak_sort.bam
+```
+
+
+However as you may have noticed, we have only performed this on a single individual so far… what if we want to do it on multiple individuals? Do we need to type all this everytime? The answer is no - we could do this much more efficiently using the bash scripting tools we learned earlier today.
+
+### 3. Working with multiple individuals
+
+There are actually multiple ways to work with multiple individuals. One way is to use a bash script to loop through all the files and align them one by one. We will examine this way in detail together. An alternative way is to use some form of parallelisation and actually map them all in parallel. We will also demonstrate an example of this, but it is quite advanced and is really only to give you some familiarity with the approach.
+
+### 4. Using a bash script to loop through and align individuals
+
+We are going to work together to write a bash script which you can use to map multiple individuals one by one. It is typically a lot more straightforward to write a script locally on your machine and then upload it to the cluster to make sure it does what you want. There are plenty of different scripting and code specific text editors out there but a free, multi-platform, open source editor we recommend is [Atom](https://atom.io/).
+
+The first thing we will do is initiate the script with the line telling the interpreter that the file must be treated as a bash script:
+
+```{bash}
+#!/bin/sh
+```
+
+
+Next, we declare some variables in our script. As we learned from our adventures with bwa mem above, we need to point to the reference genome. We do this like so:
+
+```{bash}
+REF=~/reference/P_nyererei_v2.fasta
+```
+
+
+Next, we will declare an array to ensure that we have all our individuals
+
+```{bash}
+INDS=($(for i in /home/data/wgs_raw/*R1.fastq.gz; do echo $(basename ${i%.R*}); done))
+```
+
+
+As we learned before, this will create a list of individuals which we can then loop through in order to map each individual. Here we used bash substitution to take each forward read name, remove the directory and leave only the individual name.
+
+If you want to, decleare the array in your command line and then test it (i.e. type echo ${IND[@]}). You will see that we have only individual names, which gives us some flexibility to take our individual name and edit it inside our for loop (i.e. it makes defining input and output files much easier.
+
+Next we will add the actual for loop to our script. We will use the following:
+
+```{bash}
+for IND in ${INDS[@]};
+do
+	# declare variables
+	FORWARD=/home/data/wgs_raw/${IND}.R1.fastq.gz
+	REVERSE=/home/data/wgs_raw/${IND}.R2.fastq.gz
+	OUTPUT=~/align/${IND}_sort.bam
+
+done
+```
+
+
+In this first version of our loop, we are making the $FORWARD, $REVERSE* and $OUTPUT variables, making this much easier for us to edit later. It is a good idea to test the variables we are making in each loop, using the echo command. Feel free to test this yourself now - you can just copy and paste from your script into the command line to make it easier.
+
+After we have tested the loop to make sure it is working properly, all we have to do is add the bwa mem command we made earlier but with our declared variables in place.
+
+```{bash}
+for IND in ${INDS[@]};
+do
+	# declare variables
+	FORWARD=/home/data/wgs_raw/${IND}.R1.fastq.gz
+	REVERSE=/home/data/wgs_raw/${IND}.R2.fastq.gz
+	OUTPUT=~/align/${IND}_sort.bam
+
+	# then align and sort
+	echo "Aligning $IND with bwa"
+	bwa mem -M -t 4 $REF $FORWARD \
+	$REVERSE | samtools view -b | \
+	samtools sort -T ${IND} > $OUTPUT
+
+done
+
+```
+
+With this completed for loop, we have a command that will create variables, align and sort our reads and also echo to the screen which individual it is working on, so that we know how well it is progessing.
+
+Although it takes a bit more work to make a script like this, it is worth it. This script is very general - you would only need to edit the variables in order to make it work on almost any dataset on any cluster. Reusability (and clarity) of scripts is something to strive for.
+
+Now thatwe have built our script, it is time to use it. Save it and name it align_sort.sh We will move it on to the cluster, either using scp or filezilla, a process explained in [this tutorial](https://speciationgenomics.github.io/mapping_reference/). Be sure to move it to your home folder.
+
+Once the script is on the cluster, open a screen and call it align; (i.e. screen -S align). Then run the script like so:
+
+```{bash}
+bash align_sort.sh
+```
+
+
+You will now see the script running as the sequences align. Press Ctrl + A + D in order to leave the screen. Now is a good time to take a break as you wait for the job to complete.
+
+### 5. Advanced: simultaneously aligning using parallel
+
+An alternative to mapping each individual one by one is to use parallel, a utility which lets you run commands in parallel. parallel is actually very easy to use.
+
+First we need to make a list of individuals. We can do that using similar code to that we used above to declare an array:
+
+```{bash}
+for i in /home/data/wgs_raw/*R1.fastq.gz; do echo $(basename ${i%.R*}); done > inds
+```
+
+
+So now we have created a file called inds with each individual on a separate line. Use cat to check it.
+
+Next we will look at how parallel works. The following command will take inds as an input file and then print all values contained to the file at once, splitting the job across different cores on the cluster.
+
+```{bash}
+parallel 'echo {}' :::: inds
+```
+
+
+Now, you won’t really notice the benefits of paralell like this, but at least you know understand the syntax. The {} is just a placeholder, allowing paralell to read in from the file which we define after **::::**.
+
+Next we need to write a quick script - one that will take an individual name from the command line and perform the alignment on it. We can use a modified version of the script we wrote in the last section.
+
+```{bash}
+#!/bin/sh
+
+# align a single individual
+REF=~/reference/P_nyererei_v2.fasta
+
+# declare variables
+IND=$1
+FORWARD=/home/data/wgs_raw/${IND}.R1.fastq.gz
+REVERSE=/home/data/wgs_raw/${IND}.R2.fastq.gz
+OUTPUT=~/align/${IND}_sort.bam
+
+# then align and sort
+echo "Aligning $IND with bwa"
+bwa mem -M -t 4 $REF $FORWARD \
+$REVERSE | samtools view -b | \
+samtools sort -T ${IND} > $OUTPUT
+
+```
+
+This script is more or less identical to that above but it no longer contains a for loop and furthermore, it defines the $IND variable from the command line as $1. Save the script as parallel_align.sh and move it to the cluster.
+
+This means that the script could be run like so:
+
+```{bash}
+sh parallel_align.sh 10558.PunPundMak
+```
+
+
+This would actually work, but only for one individual. To ensure that we use all the available computing cores to run align on all individuals simultaneously, we use parallel like so:
+
+
+```{bash}
+parallel `sh parallel_align.sh {}` :::: inds
+```
+
+This takes a few minutes but it is well worth learning how to use parallel in this way, it can significantly speed up your analyses.
+
+Finally, we need to remove duplicate reads from the dataset to avoid PCR duplicates and technical duplicates which inflate our sequencing depth and give us false certainty in the genotype calls. We can use [Picard Tools](https://broadinstitute.github.io/picard/) to do that. Again, we can parallelize this to process 10 bam files at once.
+
+```{bash}
+cat inds | parallel --verbose -j 10 \
+java -Xmx1g -jar /home/scripts/picard.jar \
+MarkDuplicates REMOVE_DUPLICATES=true \
+ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT \
+MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=1000 \
+INPUT={}.bam \
+OUTPUT={}.rmd.bam \
+METRICS_FILE={}.rmd.bam.metrics
+
+# Now we need to index all bam files again and that's it!
+samtools index *.rmd.bam
+```
+

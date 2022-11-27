@@ -1,0 +1,285 @@
+---
+title: "IBAP 2022: Going Further with Linux"
+author: "Mouhamadou F. DIOP, Archibald Worwui, Lucas A. Etego & Alfred A. NGWA"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+    html_document: 
+        toc: yes
+        toc_float: yes
+        code_folding: hide
+        theme: cerulean
+        highlight: tango
+        
+---
+---
+
+---
+
+# Introduction
+In the last session, we learned the basics of *Unix* and how we can use it to create, move and manipulate files. In this session, we will dig in further into *Unix* and its associated programming language, `bash` in order to see how we can perform some quite powerful and sophisticated operations on files. First of all, we’ll introduce some key command line tools and how you can use them in combination with one another.
+
+# Combining commands
+There are a huge number of different *Unix* command line utilities and tools. What is especially useful with Unix is how easy it is to combine them all. Now that we know a **few basic commands**, we can finally look at the shell’s most powerful feature: the ease with which it lets us combine existing programs in new ways.\
+We’ll start with the directory **session2_linux_command_lines/advanced_unix_commands**, from `materials_day1` Folder which contains ten files containing reference sequences of the drug resistance genes of P.*falciparum *. The .fasta extension indicates that these files are in `Fasta` format, a simple text format that specifies the nucleotide sequence of the genes.
+
+We will use a very simple pipe here to demonstrate the principal but throughout the course, we will use pipes in more complicated examples, always with a detailed explanation. First of all, move to our workshop directory and let’s create some files.
+
+```{bash eval = FALSE}
+cd ~/Malaria_training_2022
+touch file1.txt file2.txt file3.txt
+```
+
+So in this instance, we know we created three text files. But what if we want to actually check this? Well we already learned that `ls` will show us the files in a directory.
+
+```{bash eval = FALSE}
+ls *.txt
+```
+
+But this will just show the files, it won’t count them for us. Of course in such a simple example, we can actually just count them ourselves - but this will rarely be practical in a proper bioinformatics context where we may have hundred of files. So let’s use a `pipe` to do the work for us.
+
+```{bash eval = FALSE}
+ls *.txt | wc -l
+```
+
+We already saw what the first part of this command does - it lists the files. This list is then piped into `wc` which is a utility to count words and lines (i.e. word count). Last but not least, the `-l` flag tells `wc` to count lines and not words.
+
+Pipes can make your Unix commands extremely efficient. A little later on, you will see how we can use pipes to perform all the separate components of a SNP calling pipeline with a single line of code!
+
+**Note**: `wc` can be also use to count the `number of lines`, `words` or `characters` in files. Imagine you have different `.fasta` files with different number of samples. You can count the number of samples by using:
+
+```{bash eval = FALSE}
+cd materials_day1/session2_linux_command_lines/advanced_unix_commands
+wc GeneByLocusTag.fasta
+
+# If you want to perform it for multiple files
+wc *.fasta
+```
+
+## Saving output from commands
+Which of these files contains the fewest lines? It’s an easy question to answer when there are only ten files, but what if there were 6000? Our first step toward a solution is to run the command:
+
+```{bash eval = FALSE}
+wc -l *.fasta > length.txt
+```
+
+The greater than symbol, `>` tells the shell to redirect the command’s output to a file instead of printing it to the screen (this is why there is no screen output: everything that `wc` would have printed has gone into the file `lengths.txt` instead). The shell will create the file if it doesn’t exist. If the file exists, it will be silently overwritten, which may lead to data loss and thus requires some caution. `ls lengths.txt` confirms that the file exists
+
+## Redirecting to the same file
+It’s a very bad idea to try redirecting the output of a command that operates on a file to the same file. For example:
+
+```{bash eval = FALSE}
+sort -n lengths.txt > lengths.txt
+```
+Doing something like this may give you incorrect results and/or delete the contents of *lengths.txt*.
+So to avoid overwriting or deleting contents of a file, we can use the `>>` symbol.\
+Let's add one line to our existing `length.txt` file
+
+```{bash eval = FALSE}
+wc -l *.fasta > length.txt
+echo "This previous command counts the number of lines, words or characters in each file" >> lengths.txt
+```
+
+# Building up your Unix commands
+
+There are a huge number of extremely helpful Unix command line tools. We have already encountered some - i.e. `pwd`, `wc`, `ls` and so on. There are many more, and sadly we won’t be able to cover them all here. Nonetheless, when we introduce new tools throughout the course, we will do our best to explain them in detail.
+
+For now though, we will introduce six tools which are really essential and that you will encounter numerous times. These are `cat`, `head`, `tail`, `grep`, `sed`, `cut` and `awk`. Each of these tools could have a tutorial dedicated to them in their own right and they take some time to get used to, but it is worth it, they can really make your life a lot, lot easier when working with bioinformatic data!
+
+> Note that, for all the commands we study in this training, you can look at the different options by accessing the help or the manual page using:
+>
+> **command** --help or man **command**
+
+### cat
+We can send the content of *lengths.txt* to the screen using `cat lengths.txt`. The `cat` command gets its name from ‘concatenate’ i.e. join together, and it prints the contents of files one after another. There’s only one file in this case, so `cat` just shows us what it contains:
+
+```{bash eval = FALSE}
+cat lengths.txt
+```
+
+The same command can be used to display the content of the other fasta files by doing:
+
+```{bash eval = FALSE}
+cat GeneByLocusTag.fasta
+```
+
+> Could you please explain in details what `cat` command does?
+
+### head
+`head` will display the ‘`head`’ of a file - i.e. the *first 10 lines* by default. This command is essential if you are going to be working with bioinformatic data as often your files are millions of lines long and you just want to have a quick peek at what it contains.
+
+For example, we can use `head` on the GeneByLocusTag.fasta file to see the first *10 lines*
+
+```{bash eval = FALSE}
+head GeneByLocusTag.fasta
+```
+
+We can also specify exactly how many lines we want to display. For example, if we want to see 20 lines:
+
+```{bash eval = FALSE}
+head -20 GeneByLocusTag.fasta
+```
+
+### tail
+`tail` is much the same as `head`, except it operates at the other end - i.e. it shows you the *last ten lines* of a file. It is also useful for skipping the start of a file.
+
+First of all, let’s look at the *last 10 line*s of the GeneByLocusTag.fasta file.
+
+```{bash eval = FALSE}
+tail GeneByLocusTag.fasta
+```
+
+Or the last 20?
+
+```{bash eval = FALSE}
+tail -20 GeneByLocusTag.fasta
+```
+
+And if you would like to skip a line, we can use `tail` for this too.
+
+Let’s first just extract the first 10 lines of the declaration using `head`.
+
+```{bash eval = FALSE}
+head GeneByLocusTag.fasta > my_file.txt
+```
+
+Now if we use `tail` with `-n` flag, we can skip lines from the start of the file. For example:
+
+```{bash eval = FALSE}
+tail -n+3 my_file.txt
+```
+
+The `-n+3` argument skips the *first three lines* of the file. This is very useful for removing lines you are not interested in.
+
+### grep
+`grep` allows you to search for text data and strings. It is very useful for checking whether a pattern occurs in your data and also counting for occurrences.
+
+As an example, let’s search for the word “**protein**” in `swissprot.fasta` file.
+
+```{bash eval = FALSE}
+grep --colour "protein" swissprot.fasta
+```
+
+This will return every line of swissprot where the word protein is mentioned. We used the `--colour` flag (N.B. --color will. work too if you want to spell it like that!) to return the results with a highlight, which makes it a bit easier to see. Feel free to compare without this flag if you’d like.
+
+There are a couple of useful grep tricks here. We can return all the lines without the word “protein” if we want.
+
+```{bash eval = FALSE}
+grep -v "protein" swissprot.fasta
+```
+
+Here, `-v` just means invert the search. Alternatively, we can look for the word protein and print lines that come after each match.
+
+```{bash eval = FALSE}
+grep --colour -A 2 "protein" swissprot.fasta
+```
+
+The `-A 2` flag just says, print the two lines after each match. We can do the same for the lines before the match with -B.
+
+```{bash eval = FALSE}
+grep --colour -B 2 "protein" swissprot.fasta
+```
+
+Whereas if we use `-C`, we can get the number of lines we want either side of a match.
+
+```{bash eval = FALSE}
+grep --colour -C 3 "protein" swissprot.fasta
+```
+
+This will return 3 lines before and after each match, which is equivalent to `-B 3 -A 3`.
+
+Finally we can also use `grep` to count occurrences of a word. 
+
+How many times do you think the word “`protein`” appears in `swissprot.fasta`? You can use grep to find out…
+
+```{bash eval = FALSE}
+grep -c "protein" swissprot.fasta
+```
+
+Actually though, this is not quite accurate since searching for "protein" does not include instances where the word starts with a capital letter. We can solve this by altering our search term a little:
+
+```{bash eval = FALSE}
+grep -c "[Pp]rotein" swissprot.fasta
+```
+
+Here the `[Pp]` simply means we are looking for any matches where the first letter is either “*P*” or “*p*”.
+
+### sed
+`sed` is similar to `grep` in that it allows you to search through text and replace it. Again this makes it very powerful for altering text data very rapidly.
+
+Let’s extract some text from *swissprot.fasta* to demonstrate *sed*. To do this, we will `grep` all sentences with the name “`Casein`” (the main character in the novel) on.
+
+```{bash eval = FALSE}
+grep "Casein" swissprot.fasta > casein.txt
+```
+
+Have a look at the file we created. Let’s have a look at what we can do with `sed`. Firstly, it is possible to look at a specific line of our text:
+
+```{bash eval = FALSE}
+sed -n 3p casein.txt
+```
+
+In this command, `3p` is just telling the `-n` flag we want to see the third line. We could also extract lines `3-5` like so:
+
+```{bash eval = FALSE}
+sed -n 3,5p casein.txt
+```
+
+But *sed* can actually do much more than this. For example, it can replace text. Let’s replace all instances of “*Casein*” with a small `c`, like “*casein*”:
+
+```{bash eval = FALSE}
+sed 's/Casein/casein/g' casein.txt
+```
+
+This is just a small demonstration of what it is possible to do with sed. It is a very useful tool, especially for file conversion and well worth getting more familiar with. You want to learn more about `sed` [here](https://www.digitalocean.com/community/tutorials/the-basics-of-using-the-sed-stream-editor-to-manipulate-text-in-linux).
+
+### cut
+`cut` is a command-line utility which allows you to cut a specific column out of a file. This is a particularly useful command for accessing specfic parts of datafiles.
+
+*cut* is probably the more straightforward of the tools here. We can use it to get some columns of the iris_data.txt.
+
+```{bash eval = FALSE}
+cut -f 1 iris_data.txt | head
+```
+
+Note that we piped the output to head to make it clearer. We could also extract multiple columns:
+
+```{bash eval = FALSE}
+cut -f 3,5 iris_data.txt | head
+```
+
+Note that cut expects a tab-delimited file by default. So if your file is comma-separated or uses spaces, you need to use the `-d` flag to specify it. You can see examples (and more information on `cut` by using `man cut` to view the manual. Note that this works for most command-line tools too.
+
+### awk
+`awk` is not so much a command-line tool, rather a full programming language. It is extremely flexible and can actually be used to do many of the things the previous commands do too. However, it is particularly useful for in-line editing and converting file formats. We can get an idea of how it works with the iris_data.txt.
+
+For example, let’s use it in a similar way to *cut* and just print a single column of the data.
+
+```{bash eval = FALSE}
+awk '{print $1}' iris_data.txt | head
+```
+
+`awk` essentially iterates through each row of the file we provided it. So we can also get it to print additional values next to the column we extract. For example:
+
+```{bash eval = FALSE}
+awk '{print $1,"\t"50}' iris_data.txt | head
+```
+
+Here we added a tab space with "\t" and told `awk` to print 50 for each row.
+
+We could also do something like add 1 to each value of a specific column. For example:
+
+```{bash eval = FALSE}
+awk '{print $3,"\t"$3+1}' iris_data.txt | head
+```
+
+Here we printed column 3 and also column 3 but with 1 added to all the values in it.
+
+`awk` can do even more than this. It is definitely worth checking out a *few tutorials* on it. We will leave our introduction to `awk` and the other tools here - but we will return to them and their uses throughout our bioinformatics training.\
+\
+\
+
+**To learn more about Unix Command Line**:\
+
+-   [Ryans Tutorials](https://ryanstutorials.net/linuxtutorial/)\
+
+-   [Linux command line exercises](https://userweb.eng.gla.ac.uk/umer.ijaz/bioinformatics/linux.html)\

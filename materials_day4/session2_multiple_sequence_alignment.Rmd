@@ -1,0 +1,107 @@
+---
+title: "Multiple Sequence Alignment"
+author: "Mouhamadou F DIOP, Archibald Worwui"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+---
+
+**Reading**:\
+
+- [Multiple sequence alignment modeling: methods and applications](https://doi.org/10.1093/bib/bbv099)
+- [Sequence Alignment](https://webstor.srmist.edu.in/web_assets/srm_mainsite/files/files/1(7).pdf)
+- [Sequence Alignment Tools](https://molbiol-tools.ca/Alignments.htm)
+- [List of sequence alignment software](https://en.wikipedia.org/wiki/List_of_sequence_alignment_software)
+
+
+## Introduction
+
+[Multiple Sequence Alignment](https://en.wikipedia.org/wiki/Multiple_sequence_alignment) (**MSA**) is generally the alignment of three or more biological sequences (protein or nucleic acid) of similar length. From the output, homology can be inferred and the evolutionary relationships between the sequences studied.
+
+[MSA](https://en.wikipedia.org/wiki/Multiple_sequence_alignment) is a widely used technique in computational biology for biological sequence analysis, bioinformatics, and allied subjects (**Popa et al., 2020**). Either phylogenetic reconstruction or structure analysis initial step is the comparison of homologous proteins by `MSA`. `MSA` plays a vital role in new member identification of protein on comparing with similar sequences. Biologically good and accurate alignments show homology and relationships to deduce meaningful information. The accuracy of `MSA` plays a vital role as further analysis depends on the results of the `MSA`. Hence, the development of reliable and accurate `MSA` tools always remains a promising task.
+
+By contrast, **Pairwise Sequence Alignment** tools are used to identify regions of similarity that may indicate functional, structural and/or evolutionary relationships between two biological sequences. \
+
+### Some of the most usual uses of the multiple alignments are:
+
+*   phylogenetic analysis
+
+*   conserved domains
+
+*   protein structure comparison and prediction
+
+*   conserved regions in promoters
+
+The multiple sequence alignment assumes that the sequences are homologous, they descend from a common ancestor. The algorithms will try to align homologous positions or regions with the same structure or function.
+
+## Multiple alignment algorithm
+
+Multiple alignments are computationally much more difficult than pair-wise alignments. It would be ideal to use an analog of the Smith & Waterman algorithm capable of looking for optimal alignments in the diagonals of a multidimensional matrix given a scoring schema. This algorithm would had to create a multidimensional matrix with one dimension for each sequence. The memory and time required for solving the problem would increase geometrically with the length of every sequence. Given the number of sequences usually involved no algorithm is capable of doing that. Every algorithm available reverts to a heuristic capable of solving the problem in a much faster time. The drawback is that the result might not be optimal.
+
+Usually the multiple sequence algorithms assume that the sequences are similar in all its length and they behave like global alignment algorithms. They also assume that they are not many long insertions and deletions. Thus the algorithms will work for some sequences, but not for others.
+
+These algorithms can deal with sequences that are quite different, but, as in the pair-wise case, when the sequences are very different they might have problems creating good algorithm. A good algorithm should align the homologous positions or the positions with the same structure or function.
+
+It we are trying to align two homologous proteins from two species that are phylogenetically very distant we might align quite easily the more conserved regions, like the conserved domains, but we will have problems aligning the more different regions. This was also the case in the pair-wise case, but remember that the multiple alignment algorithms are not guaranteed to give back the best possible alignment.
+
+These algorithms are not design to align sequences that do not cover the whole region, like the reads from a sequencing project. There are other algorithms to assemble sequencing projects.
+
+## Progressive contruction algorithms
+
+In Multiple Sequence Alignment it is quite common that the algorithms use a progressive alignment strategy. These methods are fast and allow to align thousands of sequences.
+
+Before starting the alignment, as in the pair-wise case, we have to decide which is the scoring schema that we are going to use for the matches, gaps and gap extensions. The aim of the alignment would be to get the multiple sequence alignment with the highest score possible. In the multiple alignment case we do not have any practical algorithm that guarantees that it going to get the optimal solution, but we hope that the solution will be close enough if the sequences comply with the restrictions assumed by the algorithm.
+
+The idea behind the progressive construction algorithm is to build the pair-wise alignments of the more closely related sequences, that should be easier to build, and to align progressively these alignments once we have them. To do it we need first to determine which are the closest sequence pairs. One rough and fast way of determining which are the closest sequence pairs is to align all the possible pairs and look at the scores of those alignments. The pair-wise alignments with the highest scores should be the ones between the more similar sequences. So the first step in the algorithm is to create all the pair-wise alignments and to create a matrix with the scores between the pairs. These matrix will include the similarity relations between all sequences.
+
+Once we have this matrix we can determine the hierarchical relation between the sequences, which are the closest pairs and how those pairs are related and so on, by creating a [hierarchical clustering](https://en.wikipedia.org/wiki/Hierarchical_clustering), a tree. We can create these threes by using different fast algorithms like [UPGMA](https://en.wikipedia.org/wiki/UPGMA) or [Neighbor joining](https://en.wikipedia.org/wiki/Neighbor_joining) (NJ).
+
+Historically the most used of the progressive multiple alignment algorithms was [CLUSTALW](https://en.wikipedia.org/wiki/Clustal). Nowadays `CLUSTALW` is not one of the recommended algorithms anymore because there are other algorithms that create better alignments like [Clustal Omega](http://www.clustal.org/omega/) or [MAFFT](https://mafft.cbrc.jp/alignment/software/). `MAFFT` was one of the best contenders in a multiple alignment software comparison.
+
+`T-Coffee` is another progressive algorithm. [T-Coffee](https://tcoffee.org/) tries to solve the errors introduced by the progressive methods by taking into account the pair-wise alignments. First it creates a library of all the possible pair-wise alignments plus a multiple alignment using an algorithm similar to the `CLUSTALW` one. To this library we can add more alignments based on extra information like the protein structure or the protein domain composition. Then it creates a progressive alignment, but it takes into accounts all the alignments in the library that relate to the sequences aligned at that step to avoid errors. The `T-Coffee` algorithm follows the steps:
+
+* Create the pair-wise alignments
+
+* Calculate the similarity matrix
+
+* Create the guide tree
+
+* Build the multiple progressive alignment following the tree, but taking into account the information from the pair-wise alignments.
+
+`T-Coffee` is usually better than `CLUSTALW` and performs well even with very different sequences, specially if we feed it more information, like: domains, structures or secondary structure. `T-Coffee` is slower than `CLUSTALW` and that is one of its main limitations, it can not work with more than few hundred sequences.
+
+
+## Iterative algorithms
+
+These methods are similar to the progressive ones, but in each step the previous alignments are reevaluated. Some of the most popular iterative methods are: [Muscle](https://drive5.com/muscle/) and [MAFFT](https://mafft.cbrc.jp/alignment/software/algorithms/algorithms.html) are two popular examples of these algorithms.
+
+## Hidden Markov models
+
+The most advanced algorithms to date are based on Hidden Markov Models and they have improvements in the guide tree construction, like the sequence embedding, that reduce the computation time.
+
+`Clustal Omega` is one of these algorithms and can create alignments as accurate of the `T-Coffee`, but with many thousands of sequences.
+
+## Alignment evaluation
+
+Once we have created our Multiple Sequence Alignment we should check that the result is OK. We could open the multiple alignment in a viewer to assess the quality of the different regions of the alignment or we could automate this assessment. Usually not all the regions have an alignment of the same quality. The more conserved regions will be more easily aligned than the more variable ones.
+
+It is quite usual to remove the regions that are not well aligned before doing any further analysis, like a phylogenetic reconstruction. We can remove those regions manually or we can use an specialized algorithm like [trimAl](http://trimal.cgenomics.org/).
+
+## Software for multiple alignments
+
+There are different software packages that implement the described algorithms. These softwares include CLI and GUI programs as well as web services.
+
+One package usually employed is [MEGA](https://www.megasoftware.net/). `MEGA` is a multi-platform software focused on phylogenetic analyses.
+[Jalview](https://www.jalview.org/) and [STRAP](http://www.bioinformatics.org/strap/) a multiple alignment editor and viewer. Another old software, that has been abandoned by its developer is [BioEdit]().
+In the EBI web server have some services to run several algorithms like: `Clustal Omega` , `Kalign`, `MAFFT`, and [Muscle](www.mbio.ncsu.edu/bioedit/bioedit.html).\
+
+
+\
+\
+\
+\
+\
+\
+This tutorial is adapted from [Bioinformatics at COMAV](https://bioinf.comav.upv.es/courses/biotech3/theory/multiple.html)

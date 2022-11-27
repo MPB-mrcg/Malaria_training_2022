@@ -1,0 +1,381 @@
+---
+title: "IBAP 2022: Writing Scripts and Working with Data"
+author: "Mouhamadou F. DIOP, Archibald Worwui"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+    html_document: 
+        toc: yes
+        toc_float: yes
+        code_folding: show
+        theme: cerulean
+        highlight: tango
+        
+---
+---
+
+---
+
+# Introduction
+This tutorial is intended to give you a foundation in how to write *Bash* scripts, to get the computer to do complex, repetitive tasks for you. You won't be a bash expert at the end but we hope you will be well on your way with the right knowledge and skills to get you there if that's what you want.
+
+[Bash](https://en.wikipedia.org/wiki/Bash_(Unix_shell)) scripts are used by Systems Administrators, Programmers, Network Engineers, Scientists and just about anyone else who uses a `Linux`/ `Unix` system regularly. No matter what you do or what your general level of computer proficiency is, you can generally find a way to use *Bash* scripting to make your life easier. Bash is a command line language.
+
+`BASH` is the default shell on most Linux distributions and Apple's macOS (formerly OS X).
+
+Since it is a programming language, more often than not we will be writing bash scripts. We will deal with this shortly but beforehand, it is worth learning about some fundamental features of the bash language. These will help us build towards creating efficient and effective scripts.
+
+# Declaring variables
+Variables in programming languages are just things that we refer to in the environment we are working in. One way to think of them is like naming objects in real life. In other words, you can think of a variable as short hand for something you want your code to refer to. In bash, we declare a variable like so:
+
+```{bash eval = FALSE}
+VARIABLE="Hello world"
+```
+
+Note that the variable doesn’t have to be *small letters* or *allcaps* but that `allcaps` is the convention in bash. It is worth sticking to this convention because all command line tools have lowercase names. This makes your code much easier to read.
+
+Recalling variables is also simple, we just precede our variable name with `$`. To print it to the screen, we must use the utility echo:
+
+```{bash eval = FALSE}
+echo $VARIABLE
+```
+
+We can also declare multiple variables and combine them together:
+
+```{bash eval = FALSE}
+NAME="my name is Hal"
+echo ${VARIABLE} ${NAME}
+```
+
+Note that we wrap the variable names here in curly brackets in order to preserve them. This is not always necessary but it does ensure your code is interpreted properly. This makes more sense if we combine them in a string, i.e. to make them a full sentence.
+
+```{bash eval = FALSE}
+echo "${VARIABLE}, ${NAME}"
+```
+
+Although these examples are actual words, more often than not, you will use variables to store the names of files. Using variables in your scripting is a really useful way to make your code very efficient. Doing this means you can change what an entire script does just by changing a single variable.
+
+One last note on variables - we have actually already encountered one before this section of the tutorial - i.e. the `$HOME` variable. This is one of multiple environmental variables which are stored in our Unix environment. You can see all of them using the `env` command. It is best to not set any variables with the same names as these.
+
+Let's have a look of the different UNIX environment commands, please type `env`:
+
+`env`
+
+## String manipulation
+Now that we have learned to create variables, we can also explore how to manipulate them. This is not always straightforward in bash, but again it is really worth learning how to do this as it can make script writing much more straightforward. In most cases we will use string manipulation on filenames and paths, so we will use this as an example now.
+
+First, let’s declare a variable. We’ll make a dummy filename in this instance:
+
+```{bash eval = FALSE}
+FILE="$HOME/an_example_file.txt"
+```
+
+Let’s echo this back to the screen:
+
+```{bash eval = FALSE}
+echo $FILE
+```
+
+An important point to note here is that the `$HOME` variable has been interpreted so that we now have the entire file path.
+
+Let’s say we just want the actual filename, i.e. without the directory or path? We can use `basename`:
+
+```{bash eval = FALSE}
+basename $FILE
+```
+
+Alternatively, we could remove the filename and keep only the directory or path:
+
+```{bash eval = FALSE}
+dirname $FILE
+```
+
+For now though, we want to operate on the filename itself, so let’s redeclare the variable so it is only the filename.
+
+```{bash eval = FALSE}
+FILE=$(basename $FILE)
+echo $FILE
+```
+
+Note that here, we have to wrap the `basename $FILE` command in `$()` because it is an actual command.
+
+OK so onto some proper string manipulation. Let’s remove the `.txt` suffix.
+
+```{bash eval = FALSE}
+echo ${FILE%.*}
+```
+
+What did we do here? First we have to wrap the entire variable name in curly brackets - this will not work without them. The `%` denotes that we want to delete everything after the next character, which in this case is `.*` - i.e. everything after the period.
+
+> Note that the following would have also worked:
+
+```{bash eval = FALSE}
+echo ${FILE%.txt}
+```
+
+We don’t need to limit ourselves to the suffix. We could also delete everything after the last underscore. Like so:
+
+```{bash eval = FALSE}
+echo ${FILE%_*}
+```
+
+We could also set it so that we delete everything after the first underscore:
+
+```{bash eval = FALSE}
+echo ${FILE%%_*}
+```
+
+We can also delete from infront of the characters in our string manipulation example. For example:
+
+```{bash eval = FALSE}
+echo ${FILE#*.}
+```
+
+This deletes everything up to and including the period character. We could also do the same with the underscores:
+
+```{bash eval = FALSE}
+echo ${FILE#*_}
+echo ${FILE##*_}
+```
+
+Where again, a `single #` states we want to delete only after the last occurrence and a `double ##` denotes we want to delete everything after the first occurrence.
+
+You might be wondering, what exactly is the point of this? Well altering filenames is very important in most bioinformatics pipelines. So for example, with simple string manipulation you can change the suffix of a filename quickly and easily:
+
+```{bash eval = FALSE}
+echo $FILE
+echo ${FILE%.*}.jpg
+```
+
+One last point here; string manipulation in bash is not straightforward. It takes a lot of practice to get right and remember properly. We google [this excellent tutorial](https://tldp.org/LDP/abs/html/string-manipulation.html) nearly all the time!
+
+# Bash control flow
+Control flow is an important part of many different programming languages. It is essentially a way of controlling how code is carried out.
+
+Imagine you have to perform the same operation on many different files - do you want to type out a command for each and everyone of them? Of course not! This is why you might use control flow to repeat a command multiple times. There are many different types of control flow, but for now we will focus on the most common one - a for loop.
+
+Now, let’s have a look at a simple example:
+
+```{bash eval = FALSE}
+for i in {1..10}
+do
+    echo "This is $i"
+done
+```
+
+> Indentation within the loop is not required but helps legibility
+
+This chunk of code is is saying is that for each number between 1 and 10, echo a “`This is 1`”, “`This is 2`” and so on to the screen. `do` and `done` initiate and stop the loop respectively. Here, the variable `i` is used within the loop but this is completely arbitrary - you can use whatever variable you would like. Indeed, it is often much more convenient to use a variable that makes sense to you. For example:
+
+```{bash eval = FALSE}
+for NUMBER in {1..10}
+do
+    echo "This is $NUMBER"
+done
+```
+
+It doesn’t just have to be numbers either. You can use a loop to iterate across multiple strings too. For example:
+
+```{bash eval = FALSE}
+for NAME in Tony Luc Natacha Patrice Amanda
+do
+    echo "My name is $NAME"
+done
+```
+
+Of course, this is a silly example, but you could easily substitute this with filenames - making it quite clear why control flow is an essential skill for effective bash programming in bioinformatics.
+
+## Declaring arrays
+Imagine we want to run a for loop on some text files. We’ll make five of them to demonstrate - and we can actually do this with a for loop too:
+
+```{bash eval = FALSE}
+for i in {1..5}
+do
+    touch file_${i}.txt
+done
+```
+
+Use `ls` after running this code and you’ll see five text files.
+
+Now, what if we want to do something simple like go through all of them and print their names to the screen? We could do it like this:
+
+```{bash eval = FALSE}
+for FILE in *.txt
+do
+    echo $FILE
+done
+```
+
+This works really well for this simple example. However as your code becomes more advanced, it is easy for something like this to become quite dangerous. Imagine for example that in our `for loop`, we create a new .txt file each time? We would be in danger of creating an infinite loop, that continually prints the names of the new files it creates.
+
+For this reason, it is best practice in bash to use `arrays`. These are essentially predefined lists of variables. They are easy to make too. Let’s try a simple example.
+
+```{bash eval = FALSE}
+ARRAY=(Natacha Patrice Amanda)
+```
+
+Now we can try printing this to the screen:
+
+```{bash eval = FALSE}
+echo $ARRAY
+```
+
+This only prints the *first value* of our array. Actually, arrays have *indexes*, so we can print any value we specify like so:
+
+```{bash eval = FALSE}
+echo ${ARRAY[0]}
+echo ${ARRAY[1]}
+echo ${ARRAY[2]}
+```
+
+Notice that like `python` (and unlike R) everything in bash is *zero-indexed* - i.e. **the first variable is zero and so on**.
+
+What if we want to print everything in the array?
+
+```{bash eval = FALSE}
+echo ${ARRAY[@]}
+echo ${ARRAY[*]}
+```
+
+Either of these will work fine.
+
+We can also loop through the array, like so:
+
+```{bash eval = FALSE}
+for CHARACTER in ${ARRAY[@]}
+do
+    echo $CHARACTER
+done
+```
+
+The purpose of the array here is that it ensures the scope of our loop is limited and that it doesn’t get carried away, operating on things it shouldn’t do.
+
+One last point about arrays - it is often quite cumbersome to define them by hand. Imagine if you wanted to make an array for hundreds of files? Luckily you can also declare them from for loops too:
+
+```{bash eval = FALSE}
+ARRAY2=($(for i in *.txt
+do
+    echo $i
+done))
+```
+
+This doesn’t look very neat though - you can actually write a for loop like this on a single line - i.e.:
+
+```{bash eval = FALSE}
+ARRAY2=($(for i in *.txt ;do echo $i; done))
+```
+
+Where `;` indicates a separate line.
+
+The convenience of arrays, like much of this tutorial will become much more apparent as you become more experienced in using Unix for bioinformatics.
+
+## Writing a bash script
+So far we have learned a lot about bash as a programming language - but can we use it to write a program? Well actually… yes! This is extremely easy and it is exactly what we set out to do when we write a bash script.
+
+Let’s start with a really basic example. Type `nano` into the command line in order to open the `nano` text editor. Note that you can also use one of your GUI editors like *notepad++*, *Gedit* or *Atom*.
+
+Then we can write a simple bash script, like so:
+
+```{bash eval = FALSE}
+#!/bin/sh
+
+# a simple bash script
+echo "Hello world"
+
+exit
+```
+
+Save it as hello_world.sh. You can take another look at the output with cat or less if you want to check you saved it properly. Let’s breakdown some of the script.\
+- First of all there is this `#!/bin/sh` line. You don’t need to worry too much about that - it’s just good practice to ensure the script is run in the bash language.\
+- We also have another line starting with `#` - this is just a comment. Here it explains something about the script. Comments are really important actually and you should fill your script with them - they are a good way of letting yourself know what you have done. Again, they can be invaluable when you come back to your scripts after some time away…
+
+Now we can actually run the script. We do that like so:
+
+```{bash eval = FALSE}
+sh hello_world.sh.
+```
+
+You just wrote your first program.
+
+You can also write a script that is interactive. Let’s write another script to take an *input* from the command line.
+
+Open nano and create a script with the following:
+
+```{bash eval = FALSE}
+#!/bin/sh
+
+# a simple bash script with input
+echo "My name is ${1} and my best friend is ${2}"
+
+exit
+```
+
+Save it as `name_script.sh`. In this script, the `${1}` and `${2}` variables are just specifying that this script will take the *first* and *second* arguments to the script from the command line. Let’s see it in action.
+
+```{bash eval = FALSE}
+sh name_script.sh David Chris
+```
+
+Feel free to add whatever combination you want in here. You can actually try running this without the arguments too and see that it still works, just the output doesn’t make much sense.
+
+## A more serious scripting example
+Now we have learned a little about how to script, let’s write one that will do something for us. We’ll create five files (again using a for loop) and then convert them all from `.txt` to `.jpg`.
+
+Firstly, let’s make those files:
+
+```{bash eval = FALSE}
+for i in {1..5}
+do
+    touch file_${i}.txt
+done
+```
+
+Now, we can open up `nano` and write out script. We would do this like so:
+
+```{bash eval = FALSE}
+#!/bin/sh
+
+# a script to rename files
+
+# declare an array
+ARRAY=($(for i in file*.txt; do echo $i; done))
+
+# loop over array
+for FILE in ${ARRAY[@]}
+do
+    echo "Creating ${FILE%.*}.jpg"
+    mv $FILE ${FILE%.*}.jpg
+done
+```
+
+Now write this script out as a rename_file.sh.
+
+If you run this as `sh rename_file.sh`, it will print the name of each file it converts to the screen. You can then use `ls` to see that it has indeed converted all the *.txt* files to *.jpg*.
+
+## A script writing challenge
+With all the skills we have learned in this tutorial, it is now time for you to put them to the test. Return to the unix_exercises directory and write a short script to do the following:
+
+1. Make an array of the three files
+2. Loop through the array and count the number of samples in the file
+3. Print the number of samples and the name of the file to the output
+\
+\
+
+**To learn more about Unix Command Line**:\
+
+-   [excellent tutorial for string manipulation](https://tldp.org/LDP/abs/html/string-manipulation.html)\
+
+-   [Unix Commands Exercises](https://nsrc.org/workshops/2018/afnog-bootcamp/exercises/exercises-commands.md.htm)\
+
+-   [Introduction to Linux: Exercises](https://www.csc.fi/documents/200270/272439/Linux-command-line-exercises_Linux%2BCSC-Quick-Reference.pdf/0d3d1813-238a-4aed-a1e3-1a3d57a243f3)\
+
+-   [Rithm School](https://www.rithmschool.com/courses/terminal/terminal-advanced-terminal-exercises)\
+
+-   [Advanced Linux Exercises](https://www.csc.fi/documents/200270/359111/Exercises.pdf/d045a1e2-d4ba-46ee-9295-0e9dd7e901b7)\
+
+-   [Software Testing Help](https://www.softwaretestinghelp.com/unix-commands/)\
+
+\
+\
+\
+\
+This tutorial is adapted from [Mark Ravinet](https://genomicislands.wordpress.com/) & [Joana Meier](https://joanameier.ch/) course

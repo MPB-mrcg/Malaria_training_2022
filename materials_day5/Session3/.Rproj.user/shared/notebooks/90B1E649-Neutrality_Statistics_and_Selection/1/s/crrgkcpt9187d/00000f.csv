@@ -1,0 +1,2 @@
+"0","cr.se <- calc_candidate_regions(ihs, threshold = 2, pval = TRUE, window_size = 3000, overlap = 300, min_n_extr_mrk = 1)"
+"0","cr.se"
